@@ -1,0 +1,13 @@
+HTTP/2 429
+x-ratelimit-after: 0
+retry-after: 0
+x-ratelimit-limit: 40
+x-ratelimit-remaining: 32
+x-content-type-options: nosniff
+referrer-policy: strict-origin-when-cross-origin
+x-frame-options: DENY
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'
+x-request-id: 6366d5c4-cba6-403a-83a5-c2a55d1e23c8
+content-length: 30
+date: Fri, 28 Aug 2026 20:19:54 GMT

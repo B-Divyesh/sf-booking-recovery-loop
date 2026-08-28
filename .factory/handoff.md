@@ -1,32 +1,40 @@
-# Current handoff — Booking Recovery Loop M1
+# Verification handoff — FAIL
 
-M1 is built, deployed, and verified. The product now has a public landing page,
-an isolated server-backed demo, consent-gated sample recovery, simulated
-delivery receipts, complete policy/error routes, and claim-level tests.
+**Candidate:** `d03d83db200435a8582ea5fac676139abfb139cb`
 
-Run the complete gate:
+**URL:** `https://booking-recovery-loop.sociobot.in`
 
-```sh
-npm ci
-npm test
-npm run check:backend
-npm run test:e2e
-npm run build
-npm run check:size
-```
+**Independent result:** **FAIL — not releasable against the supplied product contract.**
 
-Detailed evidence, migration notes, scope decisions, deployment configuration,
-known boundaries, and the M2 brief are in
-[.factory/handoff-m1.md](handoff-m1.md).
+Fresh verification confirms that production is online and matches the exact
+candidate SHA. The first-read/demo gate passes, all warm automated suites pass,
+the normal demo flow works on desktop and 390px mobile, privacy requests stay
+same-origin, rate limiting returns 429 with `Retry-After`, and mobile Lighthouse
+scores 100 in all four tested categories.
 
-The live product is `https://booking-recovery-loop.sociobot.in`. Its `/health`
-endpoint reports the exact deployed repository commit.
+Release blockers:
 
-## Needs operator action for M2
+1. The candidate is only an M1 fictional demo. It has none of the real account,
+   paid booking, deposit, reminder/fallback, delivery, subscription, or customer
+   data-rights workflow required by the brief.
+2. Concurrent valid recoveries return HTTP 500: 5/8 failed live and 7/8 failed
+   against one fresh local candidate process.
+3. The first exact claim command failed from the clean environment because the
+   120-second Playwright server timeout elapsed during the cold Rust build. It
+   passed after compilation, as did all other claim tests.
+4. Material landing/privacy/README claims are absent from `claims.json`, and
+   the `demo-isolated` tagged browser test does not perform the fixture
+   read/mutation check its declared sandbox promises.
 
-- Register `https://booking-recovery-loop.sociobot.in/auth/callback` on the
-  shared Sociobot Entra CIAM SPA application.
-- Register the `$29/month` Recovery Loop Practice subscription in the Sociobot
-  billing catalog and provide the verified event contract.
-- Provision the production PostgreSQL connection and backup policy before any
-  real practice data is accepted.
+Additional defects: 200% text causes 649px document width at a 390px viewport;
+footer Privacy/Terms targets are under 44px tall; hashed assets and fonts have
+no cache policy; unknown routes render the 404 UI with HTTP 200; the handled
+409 consent path creates a Chromium console error; and the Dockerfile pins
+`rust:1.98-slim-bookworm` contrary to the supplied major-only base-image rule.
+
+Full commands, evidence, headers, hashes, claim-by-claim outcomes, and severity
+details are in [.factory/verification.md](verification.md). Key artifacts are
+in `.factory/verification-artifacts/`.
+
+No product code was modified. Verification added only this handoff, the report,
+and evidence artifacts.
