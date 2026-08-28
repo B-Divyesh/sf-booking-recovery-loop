@@ -86,6 +86,7 @@ struct Receipt {
 #[derive(Debug, FromRow)]
 struct WorkspaceRow {
     id: String,
+    is_demo: bool,
     practice_name: String,
     practice_timezone: String,
     service_name: String,
@@ -197,7 +198,7 @@ pub(crate) async fn reset(
     reject_reused_key(&state.pool, &idempotency_key).await?;
 
     let envelope = seed_workspace(&state.pool, idempotency_key).await?;
-    sqlx::query("DELETE FROM demo_workspaces WHERE id = ? AND is_demo = 1")
+    sqlx::query("UPDATE demo_workspaces SET expires_at = 0 WHERE id = ? AND is_demo = 1")
         .bind(current.id)
         .execute(&state.pool)
         .await
@@ -207,12 +208,23 @@ pub(crate) async fn reset(
 
 pub(crate) async fn recover(
     State(state): State<AppState>,
-    Path(attempt_id): Path<String>,
+    Path(requested_attempt_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<DemoEnvelope>, ApiError> {
     let token = workspace_token(&headers)?.to_owned();
     let idempotency_key = idempotency_key(&headers)?;
     let workspace = load_workspace_row(&state.pool, &token).await?;
+    let attempt_suffix = requested_attempt_id
+        .rsplit_once(':')
+        .map(|(_, suffix)| suffix)
+        .unwrap_or(&requested_attempt_id);
+    if !matches!(
+        attempt_suffix,
+        "maya-unfinished" | "jordan-no-consent" | "alex-completed"
+    ) {
+        return Err(ApiError::not_found());
+    }
+    let attempt_id = format!("{}:{attempt_suffix}", workspace.id);
 
     let attempt = sqlx::query_as::<_, AttemptRow>(
         "SELECT id, client_name, scheduled_for, state, reason, email_consent, \
@@ -287,11 +299,25 @@ pub(crate) async fn recover(
         .map_err(|_| ApiError::internal())?;
     }
 
+    let response_token = if attempt.state == "recovered" {
+        token.clone()
+    } else {
+        token_with_state(&token, "recovered")?
+    };
+    if response_token != token {
+        sqlx::query("UPDATE demo_workspaces SET token_hash = ? WHERE id = ? AND is_demo = 1")
+            .bind(token_hash(&response_token))
+            .bind(&workspace.id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| ApiError::internal())?;
+    }
+
     transaction
         .commit()
         .await
         .map_err(|_| ApiError::internal())?;
-    Ok(Json(load_workspace(&state.pool, &token).await?))
+    Ok(Json(load_workspace(&state.pool, &response_token).await?))
 }
 
 async fn seed_workspace(
@@ -301,7 +327,7 @@ async fn seed_workspace(
     let now = Utc::now().timestamp();
     let expires_at = now + DEMO_TTL.as_secs() as i64;
     let workspace_id = Uuid::now_v7().to_string();
-    let token = new_token()?;
+    let token = new_token(now)?;
     let token_hash = token_hash(&token);
     let mut transaction = pool.begin().await.map_err(|_| ApiError::internal())?;
 
@@ -409,7 +435,7 @@ async fn seed_workspace(
         .commit()
         .await
         .map_err(|_| ApiError::internal())?;
-    load_workspace(pool, &token).await
+    load_existing_workspace(pool, &token).await
 }
 
 async fn reject_reused_key(pool: &SqlitePool, key: &str) -> Result<(), ApiError> {
@@ -431,6 +457,22 @@ async fn reject_reused_key(pool: &SqlitePool, key: &str) -> Result<(), ApiError>
 
 async fn load_workspace(pool: &SqlitePool, token: &str) -> Result<DemoEnvelope, ApiError> {
     let row = load_workspace_row(pool, token).await?;
+    workspace_from_row(pool, token, row).await
+}
+
+async fn load_existing_workspace(pool: &SqlitePool, token: &str) -> Result<DemoEnvelope, ApiError> {
+    let row = query_workspace_row(pool, token)
+        .await?
+        .filter(|row| row.is_demo && row.expires_at > Utc::now().timestamp())
+        .ok_or_else(ApiError::not_found)?;
+    workspace_from_row(pool, token, row).await
+}
+
+async fn workspace_from_row(
+    pool: &SqlitePool,
+    token: &str,
+    row: WorkspaceRow,
+) -> Result<DemoEnvelope, ApiError> {
     let attempts = sqlx::query_as::<_, AttemptRow>(
         "SELECT id, client_name, scheduled_for, state, reason, email_consent, \
          consent_wording, consent_recorded_at, outcome FROM booking_attempts \
@@ -492,25 +534,116 @@ async fn load_workspace(pool: &SqlitePool, token: &str) -> Result<DemoEnvelope, 
 }
 
 async fn load_workspace_row(pool: &SqlitePool, token: &str) -> Result<WorkspaceRow, ApiError> {
+    if let Some(row) = query_workspace_row(pool, token).await? {
+        if row.is_demo && row.expires_at > Utc::now().timestamp() {
+            return Ok(row);
+        }
+        return Err(ApiError::not_found());
+    }
+    let portable = parse_token(token).ok_or_else(ApiError::not_found)?;
+    hydrate_workspace(pool, token, portable).await?;
+    query_workspace_row(pool, token)
+        .await?
+        .ok_or_else(ApiError::not_found)
+}
+
+async fn query_workspace_row(
+    pool: &SqlitePool,
+    token: &str,
+) -> Result<Option<WorkspaceRow>, ApiError> {
     sqlx::query_as::<_, WorkspaceRow>(
-        "SELECT id, practice_name, practice_timezone, service_name, service_duration_minutes, \
-         deposit_cents, currency, expires_at FROM demo_workspaces \
-         WHERE token_hash = ? AND is_demo = 1 AND expires_at > ?",
+        "SELECT id, is_demo, practice_name, practice_timezone, service_name, \
+         service_duration_minutes, deposit_cents, currency, expires_at \
+         FROM demo_workspaces WHERE token_hash = ?",
     )
     .bind(token_hash(token))
-    .bind(Utc::now().timestamp())
     .fetch_optional(pool)
     .await
-    .map_err(|_| ApiError::internal())?
-    .ok_or_else(ApiError::not_found)
+    .map_err(|_| ApiError::internal())
+}
+
+#[derive(Clone, Copy)]
+struct PortableToken<'a> {
+    entropy: &'a str,
+    created_at: i64,
+    state: &'a str,
+}
+
+async fn hydrate_workspace(
+    pool: &SqlitePool,
+    token: &str,
+    portable: PortableToken<'_>,
+) -> Result<(), ApiError> {
+    let hash = token_hash(token);
+    let seeded = seed_workspace(pool, format!("rehydrate:{}", &hash[..24])).await?;
+    let workspace_id = seeded.workspace.id;
+    let expires_at = portable.created_at + DEMO_TTL.as_secs() as i64;
+    sqlx::query(
+        "UPDATE demo_workspaces SET token_hash = ?, created_at = ?, expires_at = ? WHERE id = ?",
+    )
+    .bind(&hash)
+    .bind(portable.created_at)
+    .bind(expires_at)
+    .bind(&workspace_id)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::internal())?;
+
+    if portable.state == "recovered" {
+        let attempt_id = format!("{workspace_id}:maya-unfinished");
+        let message_id = Uuid::now_v7().to_string();
+        let now = Utc::now().timestamp();
+        let mut transaction = pool.begin().await.map_err(|_| ApiError::internal())?;
+        sqlx::query(
+            "INSERT INTO outbound_messages \
+             (id, workspace_id, attempt_id, idempotency_key, channel, state, created_at) \
+             VALUES (?, ?, ?, ?, 'email', 'delivered', ?)",
+        )
+        .bind(&message_id)
+        .bind(&workspace_id)
+        .bind(&attempt_id)
+        .bind(format!("rehydrated-recovery:{}", portable.entropy))
+        .bind(now)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| ApiError::internal())?;
+        sqlx::query(
+            "INSERT INTO delivery_events \
+             (id, message_id, status, detail, occurred_at, simulated) \
+             VALUES (?, ?, 'delivered', 'Sample email accepted by the in-process demo mailbox.', ?, 1)",
+        )
+        .bind(Uuid::now_v7().to_string())
+        .bind(&message_id)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| ApiError::internal())?;
+        sqlx::query(
+            "UPDATE booking_attempts SET state = 'recovered', \
+             outcome = 'Sample follow-up delivered' WHERE id = ? AND workspace_id = ?",
+        )
+        .bind(&attempt_id)
+        .bind(&workspace_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| ApiError::internal())?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| ApiError::internal())?;
+    }
+    Ok(())
 }
 
 async fn purge_expired(pool: &SqlitePool) -> Result<(), ApiError> {
-    sqlx::query("DELETE FROM demo_workspaces WHERE is_demo = 1 AND expires_at <= ?")
-        .bind(Utc::now().timestamp())
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::internal())?;
+    sqlx::query(
+        "DELETE FROM demo_workspaces WHERE is_demo = 1 AND expires_at <= ? AND created_at <= ?",
+    )
+    .bind(Utc::now().timestamp())
+    .bind(Utc::now().timestamp() - DEMO_TTL.as_secs() as i64)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::internal())?;
     Ok(())
 }
 
@@ -541,10 +674,47 @@ fn idempotency_key(headers: &HeaderMap) -> Result<String, ApiError> {
         })
 }
 
-fn new_token() -> Result<String, ApiError> {
+fn new_token(created_at: i64) -> Result<String, ApiError> {
     let mut bytes = [0_u8; TOKEN_BYTES];
     getrandom::fill(&mut bytes).map_err(|_| ApiError::internal())?;
-    Ok(URL_SAFE_NO_PAD.encode(bytes))
+    Ok(format!(
+        "v1.{}.{}.fresh",
+        URL_SAFE_NO_PAD.encode(bytes),
+        created_at
+    ))
+}
+
+fn parse_token(token: &str) -> Option<PortableToken<'_>> {
+    let mut parts = token.split('.');
+    if parts.next()? != "v1" {
+        return None;
+    }
+    let entropy = parts.next()?;
+    let created_at = parts.next()?.parse::<i64>().ok()?;
+    let state = parts.next()?;
+    if parts.next().is_some()
+        || !matches!(state, "fresh" | "recovered")
+        || URL_SAFE_NO_PAD.decode(entropy).ok()?.len() != TOKEN_BYTES
+    {
+        return None;
+    }
+    let now = Utc::now().timestamp();
+    if created_at > now + 5 * 60 || created_at + DEMO_TTL.as_secs() as i64 <= now {
+        return None;
+    }
+    Some(PortableToken {
+        entropy,
+        created_at,
+        state,
+    })
+}
+
+fn token_with_state(token: &str, state: &str) -> Result<String, ApiError> {
+    let portable = parse_token(token).ok_or_else(ApiError::not_found)?;
+    Ok(format!(
+        "v1.{}.{}.{}",
+        portable.entropy, portable.created_at, state
+    ))
 }
 
 fn token_hash(token: &str) -> String {
@@ -816,5 +986,71 @@ mod tests {
             .expect("limited route should respond");
         assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
         assert!(limited.headers().contains_key("retry-after"));
+    }
+
+    #[tokio::test]
+    async fn portable_token_preserves_state_across_replica_databases() {
+        async fn replica() -> (axum::Router, SqlitePool) {
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
+                .await
+                .expect("memory database should open");
+            migrations::up(&pool).await.expect("migration should apply");
+            (app_router(pool.clone(), "test", "../dist"), pool)
+        }
+
+        let (first, _) = replica().await;
+        let created = json(
+            first
+                .oneshot(request(
+                    "POST",
+                    "/api/v1/demo/workspaces",
+                    "replica-create",
+                    None,
+                ))
+                .await
+                .expect("first replica should create"),
+        )
+        .await;
+        let initial_token = created["workspaceToken"].as_str().expect("token");
+        let initial_attempt = created["workspace"]["attempts"][0]["id"]
+            .as_str()
+            .expect("attempt");
+
+        let (second, _) = replica().await;
+        let recovered = second
+            .oneshot(request(
+                "POST",
+                &format!("/api/v1/demo/attempts/{initial_attempt}/recover"),
+                "replica-recovery",
+                Some(initial_token),
+            ))
+            .await
+            .expect("second replica should recover");
+        assert_eq!(recovered.status(), StatusCode::OK);
+        let recovered = json(recovered).await;
+        let recovered_token = recovered["workspaceToken"]
+            .as_str()
+            .expect("recovered token");
+        assert!(recovered_token.ends_with(".recovered"));
+
+        let (third, _) = replica().await;
+        let reloaded = third
+            .oneshot(request(
+                "GET",
+                "/api/v1/demo/workspace",
+                "unused-replica-get",
+                Some(recovered_token),
+            ))
+            .await
+            .expect("third replica should load");
+        assert_eq!(reloaded.status(), StatusCode::OK);
+        let reloaded = json(reloaded).await;
+        assert_eq!(reloaded["workspace"]["attempts"][0]["state"], "recovered");
+        assert_eq!(
+            reloaded["workspace"]["attempts"][0]["receipts"][0]["simulated"],
+            true
+        );
     }
 }

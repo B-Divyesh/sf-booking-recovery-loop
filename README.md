@@ -13,8 +13,8 @@ bookings, never sends a real message, and needs no account.
 - A one-click demo of a consented abandoned-booking recovery.
 - A server-enforced stop when the sample has no email consent.
 - A simulated, timestamped delivery receipt from an in-process mailbox.
-- Random, hashed demo workspace tokens and a 24-hour server expiry.
-- A reset control that deletes the old workspace and restores the seed.
+- Portable demo workspace tokens with 256 random bits and a 24-hour expiry.
+- A reset control that replaces the current browser workspace and restores the seed.
 - Plain-language privacy, terms, and product-native not-found routes.
 - Per-IP API limits keyed from the first `X-Forwarded-For` hop.
 
@@ -77,8 +77,8 @@ docker run --rm -p 8080:8080 booking-recovery-loop
 
 Migration `0001_demo_workspaces` creates demo workspaces, booking attempts,
 outbound message records, and delivery events. The matching `.down.sql` file
-removes them, and the backend test applies both directions. Raw workspace
-tokens are returned once and stored only as SHA-256 hashes on the server.
+removes them, and the backend test applies both directions. Each portable
+token contains no personal data; server replicas store only its SHA-256 hash.
 
 See [.factory/demo.md](.factory/demo.md) for the sandbox boundary and
 [.factory/design.md](.factory/design.md) for the visual system and asset

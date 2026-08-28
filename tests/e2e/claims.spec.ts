@@ -25,7 +25,7 @@ test("@claim:demo-isolated keeps the sample in its own workspace", async ({ page
 
   await openReadyDemo(page);
   const token = await page.evaluate((key) => localStorage.getItem(key), demoTokenKey);
-  expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(token).toMatch(/^v1\.[A-Za-z0-9_-]{43}\.\d{10}\.fresh$/);
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([demoTokenKey]);
   await ticketFor(page, "Maya Patel").click();
   await page.getByRole("button", { name: "Run sample follow-up" }).click();

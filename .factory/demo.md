@@ -15,10 +15,12 @@ All names and records are fictional. No account or manual setup is required.
 ## Isolation and storage
 
 `POST /api/v1/demo/workspaces` creates a UUIDv7 workspace and returns a
-32-byte, URL-safe random token. The browser stores only that token under
-`demo:workspace-token`. The database stores only its SHA-256 hash.
+portable demo token. It contains 256 random bits, its issue time, and a
+`fresh` sample-state marker. It contains no customer or contact data. The
+browser stores it under `demo:workspace-token`; each database replica stores
+only its SHA-256 hash.
 
-Every read or write selects a workspace with all three conditions:
+An existing workspace is selected with all three conditions:
 
 1. the token hash matches;
 2. `is_demo = 1`;
@@ -27,6 +29,13 @@ Every read or write selects a workspace with all three conditions:
 The API test inserts a non-demo practice fixture and proves a demo request
 cannot read it. Expired demo workspaces are rejected and purged when a new
 workspace is created.
+
+Factory ingress may send two requests to different container replicas. A
+valid, unexpired portable token can therefore recreate only the fixed
+fictional seed on a new replica. A successful sample recovery rotates its
+marker to `recovered`, so a later replica recreates the simulated receipt too.
+The token never identifies or authorizes a real workspace. A three-database
+API test covers create, recover, and reload across separate replicas.
 
 The M1 database is SQLite because the deployed container receives no database
 configuration and stores no real customer data. Migration
@@ -48,9 +57,9 @@ server `409 consent_required`. No outbound message or receipt is created.
 
 ## Reset and expiry
 
-**Reset demo** creates a new token and fresh seed, then deletes the prior demo
-workspace. **Start for real** removes the browser token. Any inaccessible
-server copy expires after 24 hours.
+**Reset demo** creates a new token and fresh seed, replaces the browser token,
+and expires the prior workspace on the serving replica. **Start for real**
+removes the browser token. Inaccessible server copies expire after 24 hours.
 
 The API routes are limited by client IP. The first `X-Forwarded-For` hop is
 used behind factory ingress. Write routes allow a burst of 12 and return `429`

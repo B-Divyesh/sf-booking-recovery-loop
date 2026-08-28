@@ -34,9 +34,14 @@ polish remain the gate before M2.
 - SQLx persists demo workspaces, booking attempts, outbound messages, and
   delivery events in SQLite. The up migration is tracked and rerunnable; the
   down migration is exercised in the test suite.
-- Workspace tokens contain 256 bits from the operating-system CSPRNG. Only a
-  SHA-256 hash is stored. Every query requires the hash, `is_demo = 1`, and an
-  unexpired 24-hour timestamp.
+- Portable workspace tokens contain 256 bits from the operating-system CSPRNG,
+  an issue time, and a fixed fictional-state marker. They contain no personal
+  data; each replica stores only a SHA-256 hash. Existing rows require the
+  hash, `is_demo = 1`, and an unexpired 24-hour timestamp.
+- A valid token can recreate only the fixed sample on another container
+  replica. Recovery rotates its marker so the simulated receipt survives a
+  replica change. The API suite proves this across three independent SQLite
+  databases; no token path can select a production workspace.
 - The API suite inserts a non-demo practice fixture and proves its token cannot
   pass through a demo route. It also proves expired workspaces are rejected.
 - All product API routes use `tower_governor`. The limiter reads the first
@@ -68,10 +73,10 @@ Local verification from the committed tree:
 
 ```text
 npm test                                      2 files, 9 tests passed
-cargo test --manifest-path backend/Cargo.toml 6 tests passed
+cargo test --manifest-path backend/Cargo.toml 7 tests passed
 npm run test:e2e                             11 tests passed
 npm run build                                passed; dist/ produced
-npm run check:size                           JS 8,329 B gzip; CSS 18,736 B raw
+npm run check:size                           JS 8,352 B gzip; CSS 18,736 B raw
 Lighthouse mobile /                          performance 100; accessibility 100
                                                 best practices 100; SEO 100
 Lighthouse LCP / CLS / total                 1.7 s / 0 / 118 KiB
@@ -95,8 +100,11 @@ Runtime variables are optional: `PORT`, `DATABASE_URL`, and `STATIC_DIR`.
 There are no secrets in M1. The image defaults to port 8080, `/app/dist`, and
 a generated local SQLite file under the non-root `/data` working directory.
 
-The factory deployed commit `b0ea43e6dadf17bc368f521792caacba81cfb134`.
-Cold verification against `https://booking-recovery-loop.sociobot.in` found:
+Initial visual verification ran against commit
+`b0ea43e6dadf17bc368f521792caacba81cfb134`. The final deployment includes the
+portable-token replica correction in the commit containing this handoff; its
+exact source commit is returned by `/health`. Cold verification against
+`https://booking-recovery-loop.sociobot.in` found:
 
 ```text
 GET /                                      200
@@ -131,7 +139,7 @@ M2 must now:
    hosted Dodo-backed gateway with verified, idempotent billing events;
 6. preserve every M1 demo claim without invoking auth or billing in demo mode.
 
-Known M1 boundary: SQLite stores only ephemeral fictional demo records on the
-container filesystem. It is not the shared or backed-up customer store. That
-is safe for M1’s no-account sandbox but must not be reused for production
-practice data.
+Known M1 boundary: SQLite stores only ephemeral fictional demo records on each
+container filesystem. Portable tokens keep that fixed sample coherent across
+replicas. This is not the shared or backed-up customer store and must not be
+reused for production practice data.

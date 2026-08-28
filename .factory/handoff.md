@@ -19,9 +19,8 @@ Detailed evidence, migration notes, scope decisions, deployment configuration,
 known boundaries, and the M2 brief are in
 [.factory/handoff-m1.md](handoff-m1.md).
 
-The live product is `https://booking-recovery-loop.sociobot.in`. Its health
-endpoint reports deployed build
-`b0ea43e6dadf17bc368f521792caacba81cfb134`.
+The live product is `https://booking-recovery-loop.sociobot.in`. Its `/health`
+endpoint reports the exact deployed repository commit.
 
 ## Needs operator action for M2
 
