@@ -237,11 +237,12 @@ HTML and API responses included CSP, `X-Content-Type-Options: nosniff`,
 and a camera/microphone/geolocation-denying permissions policy.
 
 A 24-request concurrent live POST burst from one fixed first
-`X-Forwarded-For` address produced its first `429` on request 12 and included
-`Retry-After: 0`. Because requests reached multiple replicas, 17 were accepted
-and 7 were rejected during the full burst. Thus the documented per-process
-write burst of 12 is enforced and the required header exists, although the
-allowance is not globally coordinated across replicas.
+`X-Forwarded-For` address produced 17 accepted responses and 7 `429` responses;
+every rejection included `Retry-After: 0`. The repository's single-process
+integration test admits 12 sequential writes and rejects the 13th. Thus the
+documented per-process write burst is 12 and the required header exists, while
+the effective production allowance is higher and not globally coordinated
+across replicas.
 
 ## Accessibility and performance
 
