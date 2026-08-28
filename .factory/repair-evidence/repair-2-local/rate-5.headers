@@ -1,0 +1,13 @@
+HTTP/1.1 201 Created
+content-type: application/json
+x-ratelimit-limit: 12
+x-ratelimit-remaining: 7
+x-content-type-options: nosniff
+referrer-policy: strict-origin-when-cross-origin
+x-frame-options: DENY
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'
+x-request-id: 96f5b556-41cb-4c69-97a9-a0b691d4e4e8
+content-length: 1526
+date: Fri, 28 Aug 2026 23:08:48 GMT
+

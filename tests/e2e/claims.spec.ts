@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
 
+import { setForwardedClient } from "./client-identity";
+
+test.beforeEach(async ({ page }, testInfo) => {
+  await setForwardedClient(page, testInfo);
+});
+
 const demoTokenKey = "demo:workspace-token";
 
 async function openReadyDemo(page: import("@playwright/test").Page) {

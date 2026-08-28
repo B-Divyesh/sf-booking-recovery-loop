@@ -778,7 +778,7 @@ mod tests {
         let mut builder = Request::builder()
             .method(method)
             .uri(uri)
-            .header("x-forwarded-for", "198.51.100.27")
+            .header("x-forwarded-for", "198.51.100.27, 10.0.0.7")
             .header("idempotency-key", key);
         if let Some(token) = token {
             builder = builder.header("x-demo-workspace", token);
@@ -1007,8 +1007,14 @@ mod tests {
                 .await
                 .expect("limited route should respond");
             assert_eq!(response.status(), StatusCode::CREATED);
+            assert_eq!(
+                response.headers()["x-ratelimit-limit"],
+                crate::WRITE_BURST.to_string()
+            );
+            assert!(!response.headers().contains_key("x-ratelimit-whitelisted"));
         }
         let limited = app
+            .clone()
             .oneshot(request(
                 "POST",
                 "/api/v1/demo/workspaces",
@@ -1018,7 +1024,33 @@ mod tests {
             .await
             .expect("limited route should respond");
         assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert!(limited.headers().contains_key("retry-after"));
+        assert_eq!(limited.headers()["x-ratelimit-limit"], "12");
+        assert_eq!(limited.headers()["x-ratelimit-remaining"], "0");
+        assert!(!limited.headers().contains_key("x-ratelimit-whitelisted"));
+        let retry_after = limited.headers()["retry-after"]
+            .to_str()
+            .expect("Retry-After should be text")
+            .parse::<u64>()
+            .expect("Retry-After should be seconds");
+        assert!((1..=crate::WRITE_REPLENISH_SECONDS).contains(&retry_after));
+        assert_eq!(
+            limited.headers()["x-ratelimit-after"],
+            retry_after.to_string()
+        );
+
+        let other_client = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/demo/workspaces")
+                    .header("x-forwarded-for", "198.51.100.28, 10.0.0.8")
+                    .header("idempotency-key", "other-forwarded-client")
+                    .body(Body::empty())
+                    .expect("valid request"),
+            )
+            .await
+            .expect("a different client should respond");
+        assert_eq!(other_client.status(), StatusCode::CREATED);
     }
 
     #[tokio::test]

@@ -16,7 +16,8 @@ use sqlx::{
 };
 use tokio::{signal, sync::Mutex};
 use tower_governor::{
-    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
+    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorError,
+    GovernorLayer,
 };
 use tower_http::{
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
@@ -26,6 +27,10 @@ use tower_http::{
 };
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+const GENERAL_BURST: u32 = 40;
+const WRITE_BURST: u32 = 12;
+const WRITE_REPLENISH_SECONDS: u64 = 60;
 
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -49,7 +54,10 @@ pub(crate) fn app_router(
     };
 
     let mut general_builder = GovernorConfigBuilder::default().key_extractor(SmartIpKeyExtractor);
-    general_builder.per_millisecond(50).burst_size(40);
+    general_builder
+        .per_millisecond(50)
+        .burst_size(GENERAL_BURST)
+        .methods(vec![Method::GET]);
     let general_limit = Arc::new(
         general_builder
             .use_headers()
@@ -59,8 +67,8 @@ pub(crate) fn app_router(
 
     let mut write_builder = GovernorConfigBuilder::default().key_extractor(SmartIpKeyExtractor);
     write_builder
-        .per_millisecond(200)
-        .burst_size(12)
+        .per_second(WRITE_REPLENISH_SECONDS)
+        .burst_size(WRITE_BURST)
         .methods(vec![Method::POST]);
     let write_limit = Arc::new(
         write_builder
@@ -76,12 +84,12 @@ pub(crate) fn app_router(
             "/attempts/{attempt_id}/recover",
             post(routes::demo::recover),
         )
-        .layer(GovernorLayer::new(write_limit));
+        .layer(GovernorLayer::new(write_limit).error_handler(write_limit_error));
 
-    let demo_api = Router::new()
+    let read_routes = Router::new()
         .route("/workspace", get(routes::demo::show))
-        .merge(write_routes)
         .layer(GovernorLayer::new(general_limit));
+    let demo_api = read_routes.merge(write_routes);
 
     let immutable_assets = Router::new()
         .nest_service("/assets", ServeDir::new(static_dir.join("assets")))
@@ -143,6 +151,37 @@ pub(crate) fn app_router(
             HeaderName::from_static("x-request-id"),
             MakeRequestUuid,
         ))
+}
+
+fn write_limit_error(error: GovernorError) -> Response {
+    match error {
+        GovernorError::TooManyRequests { wait_time, .. } => {
+            // tower-governor reports whole elapsed seconds by rounding down. HTTP
+            // Retry-After must not invite the client to retry before a token exists.
+            let retry_after = wait_time.saturating_add(1).max(1);
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                [
+                    (header::RETRY_AFTER, retry_after.to_string()),
+                    (
+                        HeaderName::from_static("x-ratelimit-after"),
+                        retry_after.to_string(),
+                    ),
+                    (
+                        HeaderName::from_static("x-ratelimit-limit"),
+                        WRITE_BURST.to_string(),
+                    ),
+                    (
+                        HeaderName::from_static("x-ratelimit-remaining"),
+                        "0".to_owned(),
+                    ),
+                ],
+                "Too many sample writes. Try again after the stated delay.",
+            )
+                .into_response()
+        }
+        other => Response::from(other),
+    }
 }
 
 async fn spa_index(State(state): State<AppState>) -> Response {

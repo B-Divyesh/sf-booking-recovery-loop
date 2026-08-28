@@ -16,7 +16,8 @@ bookings, never sends a real message, and needs no account.
 - Portable demo workspace tokens with 256 random bits and a 24-hour expiry.
 - A reset control that replaces the current browser workspace and restores the seed.
 - Plain-language privacy, terms, and product-native not-found routes.
-- Per-IP API limits keyed from the first `X-Forwarded-For` hop.
+- A 12-write per-client allowance keyed from the first `X-Forwarded-For` hop.
+  It restores one write each minute and returns a positive `Retry-After` when full.
 
 The demo is not a production account. It does not call Entra, Sociobot
 billing, Dodo, Stripe, a messaging provider, or an AI service. CIAM,
@@ -57,6 +58,7 @@ Open `http://127.0.0.1:8080`. The service creates
 ```sh
 npm test
 npm run check:backend
+npm run test:deployment
 npm run test:e2e
 npm run build
 npm run check:size
@@ -89,8 +91,11 @@ provenance.
 ## Deployment
 
 The factory deploys `backend/Dockerfile` as a container on port 8080. The
-Dockerfile accepts `BUILD_SHA` and does not depend on `.git`. Do not add
-secrets to this repository.
+Dockerfile accepts `BUILD_SHA` and does not depend on `.git`. M1's deployment
+contract in `deploy/containerapp.m1.json` fixes the service at one replica so
+the local SQLite sandbox and per-client limiter have one service-wide boundary.
+M2 must move those boundaries to shared infrastructure before raising the
+replica count. Do not add secrets to this repository.
 
 ## License
 

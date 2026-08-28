@@ -15,10 +15,10 @@
   },
   {
     "id": "forwarded-rate-limit",
-    "claim": "Demo writes are limited per first forwarded client IP and limited requests include a retry time.",
+    "claim": "Demo writes allow 12 immediate requests per first forwarded client IP, then return a retry time of at least one second.",
     "where": "README and terms",
     "test": "cargo test --manifest-path backend/Cargo.toml write_limit_uses_forwarded_ip_and_returns_retry_after",
-    "sandbox": "An isolated router sends 13 writes from one X-Forwarded-For address and asserts the thirteenth returns 429 with Retry-After."
+    "sandbox": "An isolated router sends 13 writes from one X-Forwarded-For address, asserts the first 12 advertise limit 12, and asserts the thirteenth returns 429 with matching positive Retry-After headers while another forwarded client remains allowed."
   },
   {
     "id": "demo-no-account-payment",

@@ -1,6 +1,12 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
+import { setForwardedClient } from "./client-identity";
+
+test.beforeEach(async ({ page }, testInfo) => {
+  await setForwardedClient(page, testInfo);
+});
+
 const routes = [
   ["/", "Booking Recovery Loop — recover paid sessions"],
   ["/demo", "Demo — Booking Recovery Loop"],

@@ -1,0 +1,9 @@
+{
+  "artifactClass": "web-with-backend",
+  "containerPort": 8080,
+  "scale": {
+    "minReplicas": 1,
+    "maxReplicas": 1
+  },
+  "reason": "M1 uses an intentionally local SQLite demo store and process-local per-client rate buckets. One ingress-routed replica makes the published 12-write boundary service-wide. M2 must replace both with shared infrastructure before scaling out."
+}

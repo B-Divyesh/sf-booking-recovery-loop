@@ -14,8 +14,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:deployment": "node scripts/check-deployment.mjs",
     "test:server": "npm run build && cargo run --manifest-path backend/Cargo.toml",
-    "test:all": "npm test && npm run check:backend && npm run test:e2e && npm run build",
+    "test:all": "npm test && npm run check:backend && npm run test:deployment && npm run test:e2e && npm run build",
     "check:size": "node scripts/check-bundle.mjs",
     "check:backend": "cargo fmt --manifest-path backend/Cargo.toml --check && cargo test --manifest-path backend/Cargo.toml",
     "build:backend": "cargo build --manifest-path backend/Cargo.toml --release"

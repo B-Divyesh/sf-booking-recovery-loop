@@ -64,8 +64,10 @@ and expires the prior workspace on the serving replica. **Start for real**
 removes the browser token. Inaccessible server copies expire after 24 hours.
 
 The API routes are limited by client IP. The first `X-Forwarded-For` hop is
-used behind factory ingress. Write routes allow a burst of 12 and return `429`
-with `Retry-After` after that allowance.
+used behind factory ingress. Write routes allow 12 immediate requests per
+client, restore one request every 60 seconds, and then return `429` with a
+whole-second `Retry-After` value of at least 1. M1 runs one ingress-routed
+replica, so this is the service-wide boundary rather than a per-replica claim.
 
 ## External-service boundary
 
