@@ -10,5 +10,7 @@ backend/target/
 backend/.sqlx/
 *.sqlite
 *.sqlite-*
+*.db
+*.db-*
 data/
 graphify-out/

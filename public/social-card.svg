@@ -1,0 +1,26 @@
+<!-- Hand-made for Booking Recovery Loop, Param Factory, 2026; no external asset or model output. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0D1324"/>
+  <path d="M0 84H1200M0 546H1200" stroke="#202C49"/>
+  <g transform="translate(660 90)">
+    <path d="M0 326H450" stroke="#536481" stroke-width="4"/>
+    <circle cx="62" cy="326" r="13" fill="#82E2C7"/>
+    <circle cx="228" cy="326" r="20" fill="#FFBE5C" stroke="#0D1324" stroke-width="8"/>
+    <circle cx="390" cy="326" r="13" fill="#202C49" stroke="#536481" stroke-width="4"/>
+    <g transform="translate(120 0)">
+      <rect width="222" height="286" rx="18" fill="#F8F3E8"/>
+      <circle cx="34" cy="42" r="10" fill="#FFBE5C"/>
+      <path d="M58 34h112M34 92h154M34 130h116M34 169h76" stroke="#1E2434" stroke-width="11" stroke-linecap="round"/>
+      <path d="M0 200h222" stroke="#536481" stroke-width="2" stroke-dasharray="8 8"/>
+      <rect x="34" y="226" width="154" height="34" rx="8" fill="#FFBE5C"/>
+    </g>
+  </g>
+  <g font-family="Georgia, serif" fill="#F8F3E8">
+    <text x="82" y="162" font-size="32">Booking Recovery Loop</text>
+    <text x="82" y="250" font-size="62" font-weight="700">Recover paid</text>
+    <text x="82" y="322" font-size="62" font-weight="700">sessions before</text>
+    <text x="82" y="394" font-size="62" font-weight="700">they disappear</text>
+  </g>
+  <text x="84" y="472" fill="#CED4E5" font-family="Arial, sans-serif" font-size="25">Consent and delivery evidence on one clear rail.</text>
+  <circle cx="84" cy="554" r="10" fill="#FFBE5C"/>
+</svg>

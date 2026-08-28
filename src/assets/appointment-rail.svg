@@ -1,0 +1,35 @@
+<!-- Hand-made for Booking Recovery Loop, Param Factory, 2026; no external asset or model output. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 620" role="img" aria-labelledby="title description">
+  <title id="title">A booking recovery rail</title>
+  <desc id="description">A calm appointment rail showing one booking that needs a follow-up.</desc>
+  <rect width="920" height="620" rx="44" fill="#151E35"/>
+  <path d="M90 397H830" stroke="#536481" stroke-width="4" stroke-linecap="round"/>
+  <path d="M90 413H830" stroke="#202C49" stroke-width="2" stroke-dasharray="8 14"/>
+  <circle cx="190" cy="397" r="15" fill="#82E2C7" stroke="#0D1324" stroke-width="7"/>
+  <circle cx="460" cy="397" r="22" fill="#FFBE5C" stroke="#0D1324" stroke-width="9"/>
+  <circle cx="730" cy="397" r="15" fill="#202C49" stroke="#536481" stroke-width="5"/>
+  <g transform="translate(96 122)">
+    <path d="M18 0h188a18 18 0 0 1 18 18v198a18 18 0 0 1-18 18H18A18 18 0 0 1 0 216V18A18 18 0 0 1 18 0Z" fill="#202C49" stroke="#536481" stroke-width="2"/>
+    <path d="M0 160h224" stroke="#536481" stroke-width="2" stroke-dasharray="7 8"/>
+    <circle cx="30" cy="38" r="9" fill="#82E2C7"/>
+    <path d="M54 30h120M30 84h154M30 116h104" stroke="#CED4E5" stroke-width="11" stroke-linecap="round" opacity=".88"/>
+    <path d="M30 190h92" stroke="#82E2C7" stroke-width="10" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(348 62)">
+    <path d="M20 0h204a20 20 0 0 1 20 20v258a20 20 0 0 1-20 20H20A20 20 0 0 1 0 278V20A20 20 0 0 1 20 0Z" fill="#F8F3E8"/>
+    <path d="M0 200h244" stroke="#536481" stroke-width="2" stroke-dasharray="8 8"/>
+    <circle cx="36" cy="43" r="11" fill="#FFBE5C"/>
+    <path d="M62 34h122M36 94h162M36 132h129" stroke="#1E2434" stroke-width="12" stroke-linecap="round" opacity=".9"/>
+    <path d="M36 169h82" stroke="#536481" stroke-width="9" stroke-linecap="round"/>
+    <rect x="34" y="231" width="176" height="38" rx="10" fill="#FFBE5C"/>
+    <path d="M67 250h110" stroke="#1E2434" stroke-width="9" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(620 150)">
+    <path d="M18 0h188a18 18 0 0 1 18 18v170a18 18 0 0 1-18 18H18A18 18 0 0 1 0 188V18A18 18 0 0 1 18 0Z" fill="#202C49" stroke="#536481" stroke-width="2"/>
+    <circle cx="30" cy="38" r="9" fill="#536481"/>
+    <path d="M54 30h120M30 82h154M30 114h104" stroke="#CED4E5" stroke-width="11" stroke-linecap="round" opacity=".72"/>
+    <path d="M30 158h104" stroke="#536481" stroke-width="10" stroke-linecap="round"/>
+  </g>
+  <path d="M460 432v90" stroke="#FFBE5C" stroke-width="4"/>
+  <path d="M432 522h56l-12 24h-32Z" fill="#FFBE5C"/>
+</svg>

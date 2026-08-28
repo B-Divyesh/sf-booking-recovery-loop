@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { canonicalUrl, pageFor, routeFor } from "./site";
 
-describe("site route foundation", () => {
+describe("site routes and metadata", () => {
   it("uses the demo route for the documented query entry point", () => {
     expect(routeFor("/", "?demo=1")).toBe("demo");
     expect(pageFor("/", "?demo=1").title).toBe("Demo — Booking Recovery Loop");
@@ -22,5 +22,10 @@ describe("site route foundation", () => {
     expect(canonicalUrl("/demo")).toBe(
       "https://booking-recovery-loop.sociobot.in/demo"
     );
+  });
+
+  it("uses a plain job as the landing heading", () => {
+    expect(pageFor("/").heading).toBe("Recover paid sessions before they disappear");
+    expect(pageFor("/").description.length).toBeLessThanOrEqual(155);
   });
 });

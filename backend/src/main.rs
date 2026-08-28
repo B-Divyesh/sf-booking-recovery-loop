@@ -78,7 +78,7 @@ pub(crate) fn app_router(
     Router::new()
         .route("/health", get(routes::health::handler))
         .nest("/api/v1/demo", demo_api)
-        .fallback_service(ServeDir::new(&static_dir).not_found_service(ServeFile::new(index)))
+        .fallback_service(ServeDir::new(&static_dir).fallback(ServeFile::new(index)))
         .with_state(state)
         .layer(SetResponseHeaderLayer::if_not_present(
             header::X_CONTENT_TYPE_OPTIONS,

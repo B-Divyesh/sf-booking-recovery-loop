@@ -2,7 +2,7 @@
   "name": "booking-recovery-loop",
   "version": "0.1.0",
   "private": true,
-  "description": "Foundation tooling for Booking Recovery Loop.",
+  "description": "Recover stopped paid bookings with consent and delivery evidence.",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
@@ -14,14 +14,22 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:server": "npm run build && cargo run --manifest-path backend/Cargo.toml",
+    "test:all": "npm test && npm run check:backend && npm run test:e2e && npm run build",
+    "check:size": "node scripts/check-bundle.mjs",
     "check:backend": "cargo fmt --manifest-path backend/Cargo.toml --check && cargo test --manifest-path backend/Cargo.toml",
     "build:backend": "cargo build --manifest-path backend/Cargo.toml --release"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
     "@playwright/test": "1.58.2",
     "@types/node": "22.13.10",
     "typescript": "5.7.3",
     "vite": "6.4.3",
     "vitest": "3.2.7"
+  },
+  "dependencies": {
+    "@fontsource-variable/atkinson-hyperlegible-next": "5.3.0",
+    "@fontsource-variable/fraunces": "5.3.0"
   }
 }

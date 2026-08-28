@@ -10,26 +10,26 @@ export interface PageMeta {
 const pages: Readonly<Record<SiteRoute, PageMeta>> = {
   home: {
     title: "Booking Recovery Loop — recover paid sessions",
-    description: "Booking Recovery Loop engineering foundation.",
-    heading: "Booking Recovery Loop foundation",
+    description: "See where a paid booking stopped, check consent, and run a safe sample follow-up with a delivery receipt.",
+    heading: "Recover paid sessions before they disappear",
     canonicalPath: "/"
   },
   demo: {
     title: "Demo — Booking Recovery Loop",
-    description: "The planned isolated sample workspace for Booking Recovery Loop.",
-    heading: "Demo foundation",
+    description: "Try a consent-aware booking recovery with isolated sample data and a simulated delivery receipt.",
+    heading: "Recover a sample booking",
     canonicalPath: "/demo"
   },
   privacy: {
     title: "Privacy — Booking Recovery Loop",
-    description: "Privacy information for Booking Recovery Loop.",
-    heading: "Privacy foundation",
+    description: "How Booking Recovery Loop handles temporary demo data and protects personal information.",
+    heading: "Your sample stays separate",
     canonicalPath: "/privacy"
   },
   terms: {
     title: "Terms — Booking Recovery Loop",
-    description: "Terms information for Booking Recovery Loop.",
-    heading: "Terms foundation",
+    description: "The terms for using the Booking Recovery Loop sample workspace and future paid service.",
+    heading: "Terms for the sample workspace",
     canonicalPath: "/terms"
   },
   "not-found": {

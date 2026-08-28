@@ -1,7 +1,7 @@
 {
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/assets/*", "/favicon.svg", "/apple-touch-icon.svg", "/robots.txt", "/sitemap.xml", "/404.html", "/404.css", "/fonts/*"]
+    "exclude": ["/assets/*", "/favicon.svg", "/apple-touch-icon.png", "/social-card.png", "/robots.txt", "/sitemap.xml", "/404.html", "/404.css", "/fonts/*"]
   },
   "routes": [
     {
@@ -17,7 +17,7 @@
         "Referrer-Policy": "strict-origin-when-cross-origin",
         "X-Frame-Options": "DENY",
         "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-        "Content-Security-Policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.sociobot.in; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'"
+        "Content-Security-Policy": "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'"
       }
     }
   ],
