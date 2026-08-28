@@ -26,8 +26,10 @@ callback registration has not been confirmed.
 
 ## Repairs completed
 
-- Concurrent recovery writes now use conflict-tolerant insertion. Eight valid,
-  uniquely keyed requests return eight `200` responses and create one message.
+- Concurrent recovery writes now use conflict-tolerant insertion, a
+  per-replica critical section, and token aliases. Eight valid, uniquely keyed
+  requests against a fresh reconstructed replica return eight `200` responses
+  and create one message.
 - The Playwright server allowance is 360 seconds, covering a cold Rust/sqlx
   build instead of failing the first claim at 120 seconds.
 - `.factory/claims.json` now registers the token entropy/TTL, first-forwarded-IP

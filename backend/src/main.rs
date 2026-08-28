@@ -14,7 +14,7 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode},
     SqlitePool,
 };
-use tokio::signal;
+use tokio::{signal, sync::Mutex};
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
 };
@@ -31,6 +31,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub(crate) struct AppState {
     pub(crate) build_sha: Arc<str>,
     pub(crate) pool: SqlitePool,
+    pub(crate) demo_lock: Arc<Mutex<()>>,
     static_dir: Arc<PathBuf>,
 }
 
@@ -43,6 +44,7 @@ pub(crate) fn app_router(
     let state = AppState {
         build_sha: build_sha.into(),
         pool,
+        demo_lock: Arc::new(Mutex::new(())),
         static_dir: Arc::new(static_dir.clone()),
     };
 

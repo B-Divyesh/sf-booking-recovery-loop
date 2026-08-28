@@ -173,6 +173,7 @@ pub(crate) async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<DemoEnvelope>), ApiError> {
+    let _guard = state.demo_lock.lock().await;
     let idempotency_key = idempotency_key(&headers)?;
     purge_expired(&state.pool).await?;
     reject_reused_key(&state.pool, &idempotency_key).await?;
@@ -184,6 +185,7 @@ pub(crate) async fn show(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<DemoEnvelope>, ApiError> {
+    let _guard = state.demo_lock.lock().await;
     let token = workspace_token(&headers)?;
     Ok(Json(load_workspace(&state.pool, token).await?))
 }
@@ -192,6 +194,7 @@ pub(crate) async fn reset(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<DemoEnvelope>, ApiError> {
+    let _guard = state.demo_lock.lock().await;
     let token = workspace_token(&headers)?.to_owned();
     let idempotency_key = idempotency_key(&headers)?;
     let current = load_workspace_row(&state.pool, &token).await?;
@@ -211,6 +214,7 @@ pub(crate) async fn recover(
     Path(requested_attempt_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<DemoEnvelope>, ApiError> {
+    let _guard = state.demo_lock.lock().await;
     let token = workspace_token(&headers)?.to_owned();
     let idempotency_key = idempotency_key(&headers)?;
     let workspace = load_workspace_row(&state.pool, &token).await?;
@@ -298,12 +302,14 @@ pub(crate) async fn recover(
         token_with_state(&token, "recovered")?
     };
     if response_token != token {
-        sqlx::query("UPDATE demo_workspaces SET token_hash = ? WHERE id = ? AND is_demo = 1")
-            .bind(token_hash(&response_token))
-            .bind(&workspace.id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(|_| ApiError::internal())?;
+        sqlx::query(
+            "INSERT OR IGNORE INTO demo_token_aliases (token_hash, workspace_id) VALUES (?, ?)",
+        )
+        .bind(token_hash(&response_token))
+        .bind(&workspace.id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| ApiError::internal())?;
     }
 
     transaction
@@ -339,6 +345,13 @@ async fn seed_workspace(
     .execute(&mut *transaction)
     .await
     .map_err(|_| ApiError::internal())?;
+
+    sqlx::query("INSERT INTO demo_token_aliases (token_hash, workspace_id) VALUES (?, ?)")
+        .bind(&token_hash)
+        .bind(&workspace_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| ApiError::internal())?;
 
     let attempts = [
         (
@@ -545,10 +558,12 @@ async fn query_workspace_row(
     token: &str,
 ) -> Result<Option<WorkspaceRow>, ApiError> {
     sqlx::query_as::<_, WorkspaceRow>(
-        "SELECT id, is_demo, practice_name, practice_timezone, service_name, \
+        "SELECT w.id, w.is_demo, w.practice_name, w.practice_timezone, w.service_name, \
          service_duration_minutes, deposit_cents, currency, expires_at \
-         FROM demo_workspaces WHERE token_hash = ?",
+         FROM demo_workspaces w LEFT JOIN demo_token_aliases a ON a.workspace_id = w.id \
+         WHERE w.token_hash = ? OR a.token_hash = ? LIMIT 1",
     )
+    .bind(token_hash(token))
     .bind(token_hash(token))
     .fetch_optional(pool)
     .await
@@ -1041,9 +1056,9 @@ mod tests {
             .await
             .expect("file database");
         migrations::up(&pool).await.expect("migration");
-        let app = app_router(pool.clone(), "test", "../dist");
+        let (source, _) = test_app().await;
         let created = json(
-            app.clone()
+            source
                 .oneshot(request(
                     "POST",
                     "/api/v1/demo/workspaces",
@@ -1062,6 +1077,7 @@ mod tests {
             .as_str()
             .expect("attempt")
             .to_owned();
+        let app = app_router(pool.clone(), "test", "../dist");
 
         let mut tasks = tokio::task::JoinSet::new();
         for number in 0..8 {
@@ -1087,12 +1103,12 @@ mod tests {
         }
         assert_eq!(statuses.len(), 8);
         assert!(statuses.iter().all(|status| *status == StatusCode::OK));
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM outbound_messages WHERE attempt_id = ?")
-                .bind(&attempt)
-                .fetch_one(&pool)
-                .await
-                .expect("message count");
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM outbound_messages WHERE idempotency_key LIKE 'concurrent-key-%'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("message count");
         assert_eq!(count, 1);
         pool.close().await;
         let _ = std::fs::remove_file(database_path);

@@ -76,9 +76,11 @@ docker run --rm -p 8080:8080 booking-recovery-loop
 ## Data and migrations
 
 Migration `0001_demo_workspaces` creates demo workspaces, booking attempts,
-outbound message records, and delivery events. The matching `.down.sql` file
-removes them, and the backend test applies both directions. Each portable
-token contains no personal data; server replicas store only its SHA-256 hash.
+outbound message records, and delivery events. Migration
+`0002_demo_token_aliases` retains both pre- and post-recovery token hashes so
+parallel retries stay idempotent. Matching down migrations remove both schema
+versions, and the backend test applies both directions. Each portable token
+contains no personal data; server replicas store only its SHA-256 hash.
 
 See [.factory/demo.md](.factory/demo.md) for the sandbox boundary and
 [.factory/design.md](.factory/design.md) for the visual system and asset
