@@ -1,0 +1,31 @@
+{
+  "slug": "booking-recovery-loop",
+  "title": "Booking Recovery Loop",
+  "territory": "utilities",
+  "user": "Solo tutors, coaches, and consultants who sell paid sessions and need every abandoned or at-risk booking to become a completed, paid appointment. Paying customer: a one-to-five-person practice; wedge: conversion and delivery certainty after the booking link, at $29/month.",
+  "evidence": [
+    {
+      "url": "https://hn.algolia.com/api/v1/items/43959652",
+      "date": "2025-05-12",
+      "quote_or_summary": "A tutoring side-hustle operator says scheduling tools feel bloated, clients get confused and text anyway; a legal consultant wants a booking experience that converts and includes Stripe."
+    },
+    {
+      "url": "https://github.com/calcom/cal.diy/issues/28811",
+      "date": "2026-04-09",
+      "quote_or_summary": "A self-hosted Cal.com user reports that 24-hour and one-hour appointment reminder workflows were created but never executed."
+    }
+  ],
+  "recurrence": "Independent solo-service complaints cover booking-page friction, payments, and reminder delivery; a missed paid session is immediately lost revenue.",
+  "current_workaround": "Use Calendly/Cal.com plus Stripe plus manual texts, then check email logs when a reminder or booking goes missing.",
+  "incumbents_and_gap": "Calendly, Cal.com, SavvyCal, and Stripe solve calendar slots or payment individually. They do not make the conversion-to-attendance chain, including fallback recovery, the accountable product for tiny practices.",
+  "smallest_useful_product": "Branded paid-session page, Stripe deposit, reminder delivery receipt, and an automatic SMS/email fallback when a booking is abandoned or a reminder bounces. Non-goals: calendar replacement, CRM, or marketplace discovery.",
+  "success_measure": "In 60 days, pilot practices recover at least 10% of abandoned booking attempts or reduce paid-session no-shows by 20% versus their prior 60 days.",
+  "artifact_class": "web-with-backend",
+  "monetization": "subscription — $29/month per practice is justified by recovering a single session and covers messaging delivery.",
+  "constraints": "Obtain consent for SMS/email, use Stripe-hosted payment collection, encrypt client contact data, and support deletion/export.",
+  "est_build_effort": "M",
+  "scale": "venture",
+  "why_distinct": "The product owns measurable booking recovery and reminder proof, not just a public availability page.",
+  "confidence": 4,
+  "state": "RESEARCHED"
+}
