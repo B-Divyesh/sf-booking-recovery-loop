@@ -8,6 +8,12 @@
 
 **Date:** 2026-08-28 UTC
 
+**Deployed source:** `c5ce71cf55f1eadb6ad4267e04af9478139ca316`
+
+**Image:** `sociobotregistry.azurecr.io/sf-booking-recovery-loop:c5ce71cf55f1`
+
+**Revision:** `sf-booking-recovery-loop--0000004` (100% traffic, healthy)
+
 ## Outcome
 
 The reproducible M1 defects from the independent report are repaired and have
@@ -78,6 +84,21 @@ Local Chromium evidence is in `.factory/repair-evidence/`:
 - `local-asset.headers`: immutable cache policy plus CSP/security headers.
 - `lighthouse-local.json`: Performance 100, Accessibility 100, Best Practices
   100, SEO 100; FCP 1.1 s, LCP 1.5 s, CLS 0, TBT 0 ms.
+
+The ACR build used the root Dockerfile, floating `rust:1-slim`, excluded `.git`,
+and produced digest
+`sha256:23e80090b4ed967a13122f71075b5260a8b7da5cb7735d947477b2a550c6cd5c`.
+Live `/health` identifies the exact deployed source above. The final live checks
+also passed:
+
+- eight concurrent recovery requests: eight 200 responses, one receipt each;
+- a 60-write burst: 24 accepted, 36 returned 429, all sampled rejections had
+  `Retry-After`;
+- desktop, 390 px, and 390 px with 200% text: zero console errors, zero serious
+  or critical axe findings, and no horizontal overflow;
+- unknown route: HTTP 404; hashed JavaScript: one-year immutable cache policy;
+- factory `verify-url.sh`: title, language, one h1/main, alt text, labels, and
+  console checks passed. Evidence is in `.factory/repair-evidence/live-final/`.
 
 Docker/Podman is not installed in the worker. The root Dockerfile is verified
 by the factory ACR remote build during deployment.
