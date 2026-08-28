@@ -1,24 +1,75 @@
-# Demo contract (planned for M1)
+# Demo sandbox — M1 implementation
 
-This repository currently contains a planning and engineering foundation only.
-The customer-facing demo described below is not implemented until M1.
+## Entry and seed
 
-## Required M1 behavior
+- URL: `https://booking-recovery-loop.sociobot.in/demo`
+- Alternate entry: `https://booking-recovery-loop.sociobot.in/?demo=1`
+- Practice: North Star Coaching, timezone `Europe/London`.
+- Service: 45-minute focus session with a fictional £35 deposit.
+- Maya Patel: unfinished attempt with recorded email consent.
+- Jordan Lee: unfinished attempt without email consent.
+- Alex Morgan: completed booking with a seeded simulated receipt.
 
-- **Entry:** `/demo` and `/?demo=1` create or enter an isolated demo workspace
-  without an account.
-- **Seed:** a realistic coach practice, one 45-minute service, three booking
-  attempts (one consented unfinished attempt, one missing-consent attempt, and
-  one completed booking), plus sample delivery events.
-- **Storage:** browser state uses the `demo:` namespace. Server records use a
-  random, unguessable demo workspace token, have `is_demo=true`, and expire
-  after 24 hours. A demo token must not read or write a real practice.
-- **Safety:** demo payment and delivery outcomes are in-process fakes. No
-  Stripe, messaging, Entra, Dodo/Sociobot billing, or AI request is permitted.
-- **Reset:** the persistent banner’s Reset demo control replaces the demo token
-  and restores the original seed. Leaving demo discards browser demo state.
-- **Claims:** the acceptance tests are the five entries in `claims.json`.
+All names and records are fictional. No account or manual setup is required.
 
-The M1 handoff replaces this planned-contract note with the implemented API
-routes, seed IDs (non-sensitive), reset evidence, expiry cleanup evidence, and
-the browser storage keys.
+## Isolation and storage
+
+`POST /api/v1/demo/workspaces` creates a UUIDv7 workspace and returns a
+32-byte, URL-safe random token. The browser stores only that token under
+`demo:workspace-token`. The database stores only its SHA-256 hash.
+
+Every read or write selects a workspace with all three conditions:
+
+1. the token hash matches;
+2. `is_demo = 1`;
+3. `expires_at` is still in the future.
+
+The API test inserts a non-demo practice fixture and proves a demo request
+cannot read it. Expired demo workspaces are rejected and purged when a new
+workspace is created.
+
+The M1 database is SQLite because the deployed container receives no database
+configuration and stores no real customer data. Migration
+`0001_demo_workspaces.up.sql` is tracked and safe to rerun. Its matching down
+migration removes the schema. M2 introduces the planned shared PostgreSQL
+customer store before production practice data exists.
+
+## Recovery flow
+
+1. Select Maya Patel.
+2. Review the exact recorded email wording and timestamp.
+3. Select **Run sample follow-up**.
+4. The server checks consent, writes one sample message, and writes a simulated
+   delivered event.
+5. The browser shows its timestamp and clearly labels it as simulated email.
+
+Selecting Jordan Lee and choosing **Check recovery permission** returns a
+server `409 consent_required`. No outbound message or receipt is created.
+
+## Reset and expiry
+
+**Reset demo** creates a new token and fresh seed, then deletes the prior demo
+workspace. **Start for real** removes the browser token. Any inaccessible
+server copy expires after 24 hours.
+
+The API routes are limited by client IP. The first `X-Forwarded-For` hop is
+used behind factory ingress. Write routes allow a burst of 12 and return `429`
+with `Retry-After` after that allowance.
+
+## External-service boundary
+
+Demo payment and delivery results are in-process simulations. The complete
+Playwright flow records every URL and proves all requests stay same-origin.
+The demo never contacts Stripe, a messaging provider, Entra, Sociobot billing,
+Dodo, or the Sociobot AI gateway.
+
+## Clean verification
+
+```sh
+npm ci
+npm run test:e2e
+```
+
+Each entry in `.factory/claims.json` has exactly one tagged browser test. The
+server integration suite separately proves expiry, reset, non-demo isolation,
+consent enforcement, migration reversal, and rate-limit headers.

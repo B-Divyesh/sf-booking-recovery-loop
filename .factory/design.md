@@ -63,8 +63,9 @@ preload at most the normal body and display variable files, use
 `font-display: swap`, and commit their OFL license text in
 `public/fonts/LICENSES.md`. No font loads from a CDN.
 
-Until those assets are added, the foundation shell uses local `Georgia` and
-system UI fallbacks; it makes no network request. Type scale (with 1.25-ish
+M1 ships the Latin variable subsets in `public/fonts/`, preloads both files,
+and keeps the full OFL texts beside them. The files came from the Fontsource
+5.3.0 packages; no font network request is made. Type scale (with 1.25-ish
 steps): 14/20 label, 16/24 body, 20/28 section, 25/32 screen, 32/40 display,
 40/48 landing. Body measure is 45–70 characters; tabular numerals are used for
 times, prices, and counts.
@@ -85,7 +86,7 @@ times, prices, and counts.
 - The carousel rail is a thin line with station nodes. A bright amber station
   is always paired with a verb and a clear next step. A delivered station is
   mint plus “Delivered”; an error station is rose plus “Needs attention.”
-- 390 px is the first layout. Header navigation collapses to a labelled menu;
+- 390 px is the first layout. Header navigation stacks into a labelled row;
   status chips wrap; primary actions become full width; touch targets are at
   least 44 by 44 px with 8 px between controls.
 
@@ -105,15 +106,17 @@ delivery status.
 
 ## Original art and provenance
 
-M1 uses a hand-made CSS/SVG scene: a midnight rail, three ticket silhouettes,
-and a small amber station light. Its source must be committed under
-`src/assets/` with the comment **“Hand-made for Booking Recovery Loop, Param
-Factory, 2026; no external asset or model output.”** Decorative SVGs have
-`aria-hidden="true"`; the meaningful landing image has the alt text: “A calm
+M1 ships the hand-made `src/assets/appointment-rail.svg`: a midnight rail,
+three ticket silhouettes, and a small amber station light. Its source includes
+the comment **“Hand-made for Booking Recovery Loop, Param Factory, 2026; no
+external asset or model output.”** The landing image alt text is: “A calm
 appointment rail showing one booking that needs a follow-up.”
 
-No generated bitmap or external stock asset is included in this foundation
-commit. If a later milestone needs a hero image, it must use a factory image
+`public/social-card.svg` is a second hand-made composition derived from the
+same rail. `public/social-card.png` is a 1200×630 Chromium render of that source.
+`public/apple-touch-icon.png` is likewise rendered from the hand-made product
+mark. No image model, stock asset, brand, or generated bitmap source was used.
+If a later milestone needs a hero image, it must use a factory image
 model, be reviewed for artifacts, export responsive WebP/AVIF below 300 KB on
 mobile, and append its exact prompt, model, date, output filename, and license
 status here. Generated imagery is disclosed in the footer/about content. Text

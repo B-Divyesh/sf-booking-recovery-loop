@@ -1,6 +1,7 @@
 {
   "slug": "booking-recovery-loop",
   "title": "Booking Recovery Loop",
+  "summary": "Recover stopped paid bookings with consent and delivery evidence.",
   "territory": "utilities",
   "user": "Solo tutors, coaches, and consultants who sell paid sessions and need every abandoned or at-risk booking to become a completed, paid appointment. Paying customer: a one-to-five-person practice; wedge: conversion and delivery certainty after the booking link, at $29/month.",
   "evidence": [

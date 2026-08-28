@@ -1,6 +1,6 @@
 # Booking Recovery Loop — venture plan
 
-**Status:** foundation planned; no customer workflow has been built yet.
+**Status:** M1 built and locally verified; independent review and polish pending.
 **Product URL:** `https://booking-recovery-loop.sociobot.in`
 **Planning date:** 2026-08-28
 
@@ -112,18 +112,21 @@ lost.
   Rust and Postgres make ownership, query boundaries, and job claiming
   explicit. A single service image runs the HTTP API and a supervised worker
   loop initially; split worker deployment only when queue load warrants it.
+- **M1 demo store:** SQLite holds only fictional, expiring demo workspaces. The
+  runtime receives no database connection string, and no customer record exists
+  in M1. This keeps the public demo deployable with only `PORT`; M2 introduces
+  PostgreSQL before accounts or real practice data are accepted.
 - **Deployment shape:** one container serving the API on `PORT` (default
   `8080`) plus the built web assets, behind the factory ingress. `dist/` is
   always produced by `npm run build` for static inspection. Docker is
   multi-stage and runs as non-root. No infrastructure changes live here.
-- **Local developer services:** Docker Compose starts Postgres; the frontend
-  proxies `/api` to axum. Tests use an isolated temporary database. A developer
-  can still run the foundation shell with just Node because no product endpoint
-  exists yet.
+- **Local developer services:** M1 starts with its generated SQLite demo store.
+  Docker Compose retains the planned Postgres service for M2. API tests use an
+  isolated in-memory database, and browser tests run the built client through
+  axum so same-origin boundaries match production.
 
-The repository's initial Vite and axum shells are intentionally foundations,
-not a mock implementation of the product. M1 turns them into the first useful
-demo.
+M1 turns the initial Vite and axum shells into the first useful demo. Later
+milestones extend this boundary instead of replacing the public workflow.
 
 ### Routing and site contract
 
@@ -303,7 +306,7 @@ appears on a screen; one tagged test proves each claim from a clean sandbox.
 
 ### M1 — Public promise and isolated recovery-loop demo
 
-**Status:** planned
+**Status:** built and locally verified; independent review/polish pending
 **Goal:** A stranger can open the public page, start a sample workspace in one
 click, run a representative abandoned-booking recovery loop, and understand
 that it has not sent a real message.
