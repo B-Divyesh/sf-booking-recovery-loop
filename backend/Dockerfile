@@ -18,7 +18,7 @@ COPY backend/Cargo.toml backend/Cargo.lock backend/build.rs ./
 COPY backend/migrations ./migrations
 COPY backend/src ./src
 
-RUN cargo build --release --locked
+RUN cargo build --release --locked && mkdir -p /data
 
 FROM gcr.io/distroless/cc-debian12:nonroot
 
@@ -27,7 +27,7 @@ ENV PORT=8080
 ENV STATIC_DIR=/app/dist
 COPY --from=api-build /workspace/backend/target/release/booking-recovery-loop-api /app/booking-recovery-loop-api
 COPY --from=web-build /workspace/dist /app/dist
-COPY --from=web-build --chown=nonroot:nonroot /tmp /data
+COPY --from=api-build --chown=nonroot:nonroot /data /data
 
 USER nonroot:nonroot
 WORKDIR /data

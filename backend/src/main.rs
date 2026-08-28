@@ -1,14 +1,17 @@
 mod migrations;
 mod routes;
 
-use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{
     http::{header, HeaderName, HeaderValue, Method},
     routing::{get, post},
     Router,
 };
-use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqliteJournalMode},
+    SqlitePool,
+};
 use tokio::signal;
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
@@ -89,6 +92,10 @@ pub(crate) fn app_router(
             HeaderValue::from_static("strict-origin-when-cross-origin"),
         ))
         .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
             HeaderName::from_static("permissions-policy"),
             HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
         ))
@@ -145,7 +152,9 @@ async fn main() {
         .parse::<SqliteConnectOptions>()
         .expect("DATABASE_URL must be a valid SQLite URL")
         .create_if_missing(true)
-        .foreign_keys(true);
+        .foreign_keys(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .busy_timeout(Duration::from_secs(5));
     let pool = SqlitePool::connect_with(options)
         .await
         .expect("the demo database must open");
