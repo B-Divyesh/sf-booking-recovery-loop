@@ -1,167 +1,114 @@
-# Verification handoff — FAIL
+# M1 repair handoff — release blockers repaired
 
-**Candidate:** `b6ca2c781ddd603ff08c582b66f4b1970df783d4`
-**Live URL:** `https://booking-recovery-loop.sociobot.in`
-**Verified:** 2026-08-28 UTC
-**Report:** `.factory/verification-3.md`
-
-## Unambiguous outcome
-
-**FAIL — do not release this candidate as the researched product.** Fresh QA
-proves the live service is healthy and matches this commit, and every declared
-claim test plus all local test/build gates passed. The candidate is still an M1
-fictional demo: no CIAM onboarding, real booking/deposit flow, reminder or
-fallback delivery, real receipt/outcome tracking, data export/deletion, or
-working `$29/month` subscription. Those core requirements are explicitly
-deferred to M2–M6 in the shipped plan and UI.
-
-There is also a live rate-limit discrepancy. The documentation says a 12-write
-burst per client, but one `X-Forwarded-For` client received 36 successful
-writes before first `429` (request 37). Rejections have `Retry-After: 0`.
-Implement a shared/ingress-aware per-client limiter or correct the published
-allowance before release.
-
-## What was verified
-
-- `npm ci`, every exact `.factory/claims.json` command, `npm test`,
-  `npm run check:backend`, `npm run test:e2e` (17 tests), `npm run build`,
-  `npm run check:size`, and `npm run build:backend` passed.
-- With `VITE_BUILD_SHA` set to the candidate, local HTML and JS were
-  byte-identical to live assets. Live `/health` returned this exact SHA.
-- Live desktop and 390px demo behavior, keyboard/focus, 200%-text reflow,
-  reduced motion, serious/critical axe scan, console/page errors, headers,
-  caching, and same-origin demo request logging passed.
-- The local server started with only `PORT`; it generated its default SQLite
-  store and served `/health` and `/`.
-
-## Evidence and next step
-
-See `.factory/verification-3.md` for exact commands, response status, hashes,
-and findings. The next builder must implement M2–M6 real product flows and
-correct the live rate-limit boundary before another release verification.
-Docker/Podman/Buildah were unavailable here, so image construction remains for
-a Docker-capable worker.
-
----
-
-# Previous repair handoff — repository QA repaired, product release still blocked
-
-**Work order:** `booking-recovery-loop-repair-1`
-
-**Base report:** `841dd239418a4f5b8204a1838282521a85fc50e9`
-
-**Rejected candidate:** `d03d83db200435a8582ea5fac676139abfb139cb`
-
-**Date:** 2026-08-28 UTC
-
-**Deployed source:** `c5ce71cf55f1eadb6ad4267e04af9478139ca316`
-
-**Image:** `sociobotregistry.azurecr.io/sf-booking-recovery-loop:c5ce71cf55f1`
-
-**Revision:** `sf-booking-recovery-loop--0000004` (100% traffic, healthy)
+- **Work order:** `booking-recovery-loop-repair-2`
+- **Verifier report:** `337ffd093c05bd6929ccf26ebbbe906f27838c59`
+- **Rejected candidate:** `b6ca2c781ddd603ff08c582b66f4b1970df783d4`
+- **Repair source:** `361c10a8f0070bf19338d4b84b65090561d3a487`
+- **Live URL:** `https://booking-recovery-loop.sociobot.in`
+- **Live revision:** `sf-booking-recovery-loop--0000006` (100% traffic)
+- **Verified:** 2026-08-28 UTC
 
 ## Outcome
 
-The reproducible M1 defects from the independent report are repaired and have
-exact regression coverage. The candidate is still not the complete product in
-the researched brief: authenticated practices, a real booking/deposit path,
-provider-backed reminders and fallback, data export/deletion, and the paid
-subscription are the planned M2–M5 work and do not exist in this repository.
-This handoff therefore does **not** claim product release readiness.
+The controller identifies this as M1 QA, so the verifier's final-product scope
+critique is not an M1 defect. No planned M2–M6 account, billing, real booking,
+provider messaging, or customer persistence work was added.
 
-The external paid boundary is also not provisioned. On 2026-08-28,
-`GET https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout`
-returned `404 {"error":"enabled factory product","status":404}`. Repository
-rules prohibit registering billing infrastructure from this repair. Entra OIDC
-discovery is reachable, but no production auth code has been shipped and the
-callback registration has not been confirmed.
+The remaining release blocker is repaired. The live service now enforces the
+published 12-write allowance for one first-hop `X-Forwarded-For` client across
+the whole M1 deployment. Request 13 returns `429`, `X-RateLimit-Limit: 12`, and
+a positive `Retry-After`. The passing M1 sample, isolation, consent, privacy,
+responsive, accessibility, and performance behavior remains intact.
 
-## Repairs completed
+## Failure reproduced before repair
 
-- Concurrent recovery writes now use conflict-tolerant insertion, a
-  per-replica critical section, and token aliases. Eight valid, uniquely keyed
-  requests against a fresh reconstructed replica return eight `200` responses
-  and create one message.
-- The Playwright server allowance is 360 seconds, covering a cold Rust/sqlx
-  build instead of failing the first claim at 120 seconds.
-- `.factory/claims.json` now registers the token entropy/TTL, first-forwarded-IP
-  rate limit and retry header, no-account/no-payment demo entry, data isolation,
-  reset, consent, receipt, and same-origin privacy claims.
-- The isolation claim inserts a non-demo fixture, attempts both read and
-  mutation through the demo API, and confirms the fixture is unchanged.
-- At 390 px with text enlarged to 200%, layout width remains 390 px. Headings,
-  navigation, and the build identifier wrap; footer links are at least 44 px.
-- Hashed assets and self-hosted fonts return
-  `Cache-Control: public, max-age=31536000, immutable`; HTML is `no-cache`.
-- Unknown routes return HTTP 404 while rendering the accessible product-native
-  not-found screen. `/404` remains a directly reachable 200 route.
-- The expected no-consent action stops before `fetch`, so it produces no
-  Chromium console error; the API still independently enforces the 409 guard.
-- Both Dockerfiles use `rust:1-slim`; the configured root `Dockerfile` now
-  exists, accepts `BUILD_SHA`, builds without `.git`, and runs non-root.
-- Response headers, no-service-worker/offline messaging, desktop/mobile axe,
-  keyboard operation, and no-console behavior have browser regressions.
+Against the rejected live candidate, a fresh fixed forwarded identity received
+16 successful workspace writes before its first `429`; the rejection reported
+`Retry-After: 0`. The independent verifier observed 36 successful writes before
+the first rejection when three replicas were active. Rejection responses also
+advertised the outer read allowance (`X-RateLimit-Limit: 40`) instead of the
+write allowance.
 
-## Verification evidence
+Root causes:
 
-Clean dependency install: `npm ci` — 62 packages, zero vulnerabilities.
+- The generic deployment allowed three replicas, but each replica owned a
+  separate in-memory bucket and local SQLite store.
+- The 200 ms replenishment interval refilled during a sequential probe.
+- `tower-governor` rounded a sub-second wait down to zero.
+- The outer read limiter overwrote write-policy response headers.
 
-Commands passed:
+## Repairs
+
+- M1 now declares one ingress-routed replica in
+  `deploy/containerapp.m1.json`. This makes the process-local M1 limit and
+  SQLite sandbox service-wide. M2 must introduce shared infrastructure before
+  scale-out.
+- Write routes allow 12 immediate requests per first forwarded IP and restore
+  one allowance every 60 seconds.
+- The custom rejection response rounds the delay up and guarantees
+  `Retry-After >= 1`; it reports write limit `12` and remaining `0`.
+- Read and write limiters are on separate route branches, so policy headers do
+  not overwrite one another.
+- The claim regression sends 13 requests from one forwarded identity, checks
+  all 12 successful allowance headers, checks the 13th rejection and matching
+  positive retry headers, and proves another first-hop identity remains
+  allowed.
+- Browser tests now give each isolated test context a distinct documentation IP
+  so the complete suite tests separate clients instead of exhausting one
+  localhost bucket.
+
+## Clean local verification
+
+All commands passed from a clean `npm ci` (62 packages, 0 vulnerabilities):
 
 ```text
-npm test                                      2 files, 9 tests
-npm run check:backend                         9 Rust tests
-npm run test:e2e                              17 Chromium tests
-npm run build                                 dist/ produced
-npm run check:size                            JS 8,392 B gzip; CSS 19,123 B raw
-npm run build:backend                         optimized release build
+npm test                    2 files, 9 tests
+npm run check:backend       rustfmt + 9 Rust tests
+npm run test:deployment     M1 min/max replicas both 1
+npm run test:e2e            17 Chromium tests
+npm run build               dist/ produced
+npm run check:size          JS 8,392 B gzip; CSS 19,123 B raw
+npm run build:backend       optimized Rust release build
 ```
 
-Every exact command in `.factory/claims.json` passed individually. The cold
-Rust build completed in 73 seconds, inside the new 360-second harness limit.
-The runtime was also started with only `PORT=4180`; `/health` returned 200 and
-`{"status":"ok","build_sha":"dev"}`.
+Every exact command in `.factory/claims.json` passed individually. A runtime
+started with only `PORT=4191`; it logged a generated default database and served
+`/health` and `/`. A real HTTP probe returned 201 for writes 1–12 and 429 for
+write 13 with `Retry-After: 60` and limit 12.
 
-Local Chromium evidence is in `.factory/repair-evidence/`:
+Local desktop and 390 px demo runs had no console errors, no horizontal
+overflow, and zero serious/critical axe findings. The factory URL verifier
+passed title, language, one h1/main, image alternatives, control names, and
+console checks. Lighthouse scored Performance 100, Accessibility 100, Best
+Practices 100, and SEO 100; FCP was 1.1 s, LCP 1.7 s, CLS 0, and TBT 0 ms.
+Evidence is in `.factory/repair-evidence/repair-2-local/`.
 
-- `desktop.png` and `mobile390.png`: full demo at 1366×900 and 390×844;
-  both recorded zero console errors and no horizontal overflow.
-- `local-404.headers`: unknown route is `HTTP/1.1 404 Not Found`.
-- `local-asset.headers`: immutable cache policy plus CSP/security headers.
-- `lighthouse-local.json`: Performance 100, Accessibility 100, Best Practices
-  100, SEO 100; FCP 1.1 s, LCP 1.5 s, CLS 0, TBT 0 ms.
+## Live verification
 
-The ACR build used the root Dockerfile, floating `rust:1-slim`, excluded `.git`,
-and produced digest
-`sha256:23e80090b4ed967a13122f71075b5260a8b7da5cb7735d947477b2a550c6cd5c`.
-Live `/health` identifies the exact deployed source above. The final live checks
-also passed:
+- `/health` returned build SHA
+  `361c10a8f0070bf19338d4b84b65090561d3a487`.
+- Azure reports image tag `sf-booking-recovery-loop:361c10a8f007`, min/max
+  replicas `1/1`, and 100% traffic on revision `0000006`.
+- From one fresh `X-Forwarded-For` identity, writes 1–12 returned 201. Writes
+  13–20 all returned 429 with limit 12, remaining 0, and `Retry-After: 60`.
+- `/`, `/demo`, `/privacy`, `/terms`, `/robots.txt`, and `/sitemap.xml` return
+  200; an unknown route returns 404. Hashed JavaScript is immutable for one year.
+- Desktop and 390 px live demos had no console errors, no overflow, zero
+  serious/critical axe findings, and only same-origin requests.
+- Keyboard Tab exposed and activated the skip link, focus moved to `main`, and
+  the full sample recovery completed from the keyboard. Reduced motion matched.
+- At 390 px with 200% text, document width remained 390 px. Storage contained
+  only `demo:workspace-token`; there was no service worker.
 
-- eight concurrent recovery requests: eight 200 responses, one receipt each;
-- a 60-write burst: 24 accepted, 36 returned 429, all sampled rejections had
-  `Retry-After`;
-- desktop, 390 px, and 390 px with 200% text: zero console errors, zero serious
-  or critical axe findings, and no horizontal overflow;
-- unknown route: HTTP 404; hashed JavaScript: one-year immutable cache policy;
-- factory `verify-url.sh`: title, language, one h1/main, alt text, labels, and
-  console checks passed. Evidence is in `.factory/repair-evidence/live-final/`.
+Live evidence is in `.factory/repair-evidence/repair-2-live/`.
 
-Docker/Podman is not installed in the worker. The root Dockerfile is verified
-by the factory ACR remote build during deployment.
+## Applicability and remaining work
 
-## Remaining release blocker and next work
+This container web product is not a package, CLI, or PWA, so clean-consumer
+package checks and service-worker update/offline reload checks do not apply. Its
+explicit offline error state and absence of a service worker were verified.
+M1 has no sign-in, payment, real provider, analytics, or AI integration, so no
+live CIAM, billing, provider, or model identity exists to test.
 
-The independent report's critical scope finding cannot be honestly closed by
-patching the M1 demo. Complete M2–M5 in `.factory/plan.md`: Entra authentication
-and tenant isolation; registered Sociobot $29/month subscription; branded
-session page and Stripe-hosted client deposit; scheduled consent-aware provider
-delivery/fallback; encrypted contact persistence; receipts/outcomes; and
-self-service export/deletion. Register the billing product and Entra callback
-`https://booking-recovery-loop.sociobot.in/auth/callback` through the factory
-before claiming those flows are live.
-
-The product deliberately has no service worker or offline-work claim. The
-shell explains the offline demo state and the browser test confirms no service
-worker is registered. Package/consumer testing is not applicable to this
-container web product. No AI feature is warranted by the brief, and none was
-added.
+There are no known M1 release blockers. M2–M6 remain planned in
+`.factory/plan.md` and were deliberately not implemented in this repair.

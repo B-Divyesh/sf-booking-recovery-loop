@@ -1,0 +1,17 @@
+{
+  "image": "sociobotregistry.azurecr.io/sf-booking-recovery-loop:361c10a8f007",
+  "latest": "sf-booking-recovery-loop--0000006",
+  "scale": {
+    "cooldownPeriod": 300,
+    "maxReplicas": 1,
+    "minReplicas": 1,
+    "pollingInterval": 30,
+    "rules": null
+  },
+  "traffic": [
+    {
+      "latestRevision": true,
+      "weight": 100
+    }
+  ]
+}

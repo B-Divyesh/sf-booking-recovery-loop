@@ -1,0 +1,13 @@
+HTTP/2 201 
+content-type: application/json
+x-ratelimit-limit: 12
+x-ratelimit-remaining: 4
+x-content-type-options: nosniff
+referrer-policy: strict-origin-when-cross-origin
+x-frame-options: DENY
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'
+x-request-id: c8116171-249e-40e2-8fe0-5bc2a7a61760
+content-length: 1526
+date: Fri, 28 Aug 2026 23:17:23 GMT
+
