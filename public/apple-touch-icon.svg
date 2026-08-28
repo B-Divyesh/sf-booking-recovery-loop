@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="Booking Recovery Loop">
+  <rect width="180" height="180" rx="40" fill="#0D1324"/>
+  <path d="M42 56h96M42 90h96M42 124h96" stroke="#536481" stroke-width="6"/>
+  <circle cx="90" cy="90" r="27" fill="#FFBE5C"/>
+  <path d="M78 90h24" stroke="#1E2434" stroke-width="9" stroke-linecap="round"/>
+</svg>

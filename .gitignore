@@ -1,6 +1,14 @@
 node_modules/
 dist/
+playwright-report/
+test-results/
+coverage/
 .env
-*.log
+.env.*
+!.env.example
+backend/target/
+backend/.sqlx/
+*.sqlite
+*.sqlite-*
+data/
 graphify-out/
-.DS_Store

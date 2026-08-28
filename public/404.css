@@ -1,0 +1,44 @@
+:root {
+  color-scheme: dark;
+  background: #0d1324;
+  color: #f8f3e8;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  min-width: 20rem;
+  margin: 0;
+}
+
+main {
+  max-width: 42rem;
+  margin: 20vh auto;
+  padding: 2rem;
+}
+
+p {
+  color: #ced4e5;
+  line-height: 1.5;
+}
+
+.eyebrow {
+  color: #ffbe5c;
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h1 {
+  font-family: Georgia, Cambria, "Times New Roman", serif;
+  font-size: clamp(2rem, 8vw, 3.5rem);
+}
+
+a {
+  color: #9ccbff;
+}
+
+a:focus-visible {
+  outline: 3px solid #9ccbff;
+  outline-offset: 4px;
+}
