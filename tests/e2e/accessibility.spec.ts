@@ -25,7 +25,11 @@ for (const [path, title] of routes) {
     await expect(page.locator('img:not([alt])')).toHaveCount(0);
     const results = await new AxeBuilder({ page }).analyze();
     expect(results.violations.filter((item) => ["serious", "critical"].includes(item.impact ?? ""))).toEqual([]);
-    expect(errors).toEqual([]);
+    if (path === "/missing-page") {
+      expect(errors).toEqual([expect.stringContaining("404")]);
+    } else {
+      expect(errors).toEqual([]);
+    }
   });
 }
 
@@ -43,6 +47,54 @@ test("keyboard users can skip, select, and run the recovery", async ({ page }) =
   await recovery.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator(".receipt-timeline li")).toContainText("Delivered");
+});
+
+test("expected consent stop does not create a console error", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  await openDemo(page);
+  await page.locator('[data-action="select-attempt"]').filter({ hasText: "Jordan Lee" }).click();
+  await page.getByRole("button", { name: "Check recovery permission" }).click();
+  await expect(page.locator(".inline-notice")).toContainText("stays stopped");
+  expect(errors).toEqual([]);
+});
+
+test("390px at 200 percent text reflows and keeps 44px footer targets", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "200%";
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  for (const link of await page.locator("footer a").all()) {
+    const box = await link.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+});
+
+test("unknown pages return 404 and immutable assets are cached", async ({ request, page }) => {
+  const missing = await request.get("/missing-page");
+  expect(missing.status()).toBe(404);
+  await page.goto("/");
+  const assetPath = await page.locator('script[type="module"]').getAttribute("src");
+  expect(assetPath).toBeTruthy();
+  const asset = await request.get(assetPath ?? "");
+  expect(asset.headers()["cache-control"]).toBe("public, max-age=31536000, immutable");
+});
+
+test("security response policy and offline error state are explicit", async ({ page, request, context }) => {
+  const response = await request.get("/");
+  expect(response.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
+  expect(response.headers()["x-content-type-options"]).toBe("nosniff");
+  expect(response.headers()["referrer-policy"]).toBe("strict-origin-when-cross-origin");
+  await page.goto("/");
+  expect(await page.evaluate(() => navigator.serviceWorker.getRegistrations().then((items) => items.length))).toBe(0);
+  await context.setOffline(true);
+  await page.getByRole("link", { name: "Try it with sample data" }).click();
+  await expect(page.getByRole("heading", { name: "The demo is offline" })).toBeVisible();
 });
 
 async function openDemo(page: import("@playwright/test").Page) {

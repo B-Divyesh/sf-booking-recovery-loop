@@ -252,7 +252,7 @@ function privacyContent(): string {
       <p class="policy-lede">The demo uses fictional people and a temporary workspace. It never opens a real practice record.</p>
       <section><h2>What the demo stores</h2><p>Your browser keeps one random demo token under <code>demo:workspace-token</code>.</p><p>The server keeps the matching sample workspace for up to 24 hours.</p></section>
       <section><h2>What the demo does not contact</h2><p>Demo actions do not call payment, messaging, sign-in, billing, or AI services.</p><p>The simulated receipt comes from this product’s own server.</p></section>
-      <section><h2>How to remove the sample</h2><p>Reset demo deletes the current workspace and creates a fresh one.</p><p>Start for real removes the browser token. The inaccessible server copy expires automatically.</p></section>
+      <section><h2>How to remove the sample</h2><p>Reset demo makes the current workspace inaccessible and creates a fresh one.</p><p>Start for real removes the browser token. The inaccessible server copy expires automatically.</p></section>
       <section><h2>Production data</h2><p>M1 has no customer account, payment, or real contact-data flow.</p><p>This notice will change before those features open.</p></section>
       <a class="button button-primary" href="/demo">Open the sample workspace</a>
     </article>`;
@@ -413,6 +413,12 @@ async function performReset(): Promise<void> {
 
 async function performRecovery(attemptId: string): Promise<void> {
   if (!demoEnvelope || workingAttemptId) return;
+  const attempt = demoEnvelope.workspace.attempts.find((item) => item.id === attemptId);
+  if (attempt && !recoveryPermission(attempt).allowed) {
+    demoNotice = recoveryPermission(attempt).explanation;
+    render();
+    return;
+  }
   workingAttemptId = attemptId;
   demoNotice = "Checking the recorded permission.";
   render();

@@ -52,8 +52,10 @@ customer store before production practice data exists.
    delivered event.
 5. The browser shows its timestamp and clearly labels it as simulated email.
 
-Selecting Jordan Lee and choosing **Check recovery permission** returns a
-server `409 consent_required`. No outbound message or receipt is created.
+Selecting Jordan Lee and choosing **Check recovery permission** stops in the
+browser before a request is sent. The server independently returns
+`409 consent_required` if a caller bypasses the interface. No outbound message
+or receipt is created.
 
 ## Reset and expiry
 
@@ -79,6 +81,6 @@ npm ci
 npm run test:e2e
 ```
 
-Each entry in `.factory/claims.json` has exactly one tagged browser test. The
-server integration suite separately proves expiry, reset, non-demo isolation,
-consent enforcement, migration reversal, and rate-limit headers.
+Each entry in `.factory/claims.json` names one exact browser or server test.
+The suite proves expiry, reset, non-demo isolation, consent enforcement,
+migration reversal, and rate-limit headers.

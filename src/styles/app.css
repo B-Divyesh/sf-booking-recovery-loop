@@ -19,7 +19,7 @@
 }
 
 html {
-  min-width: 20rem;
+  min-width: min(20rem, 100%);
   background: var(--color-night);
   color: var(--color-paper);
   font-family: var(--font-body);
@@ -27,7 +27,7 @@ html {
 }
 
 body {
-  min-width: 20rem;
+  min-width: min(20rem, 100%);
   min-height: 100vh;
   margin: 0;
   background:
@@ -134,6 +134,19 @@ main {
   margin-inline: auto;
 }
 
+.site-header > *,
+main > *,
+.hero > *,
+.section-rule > * {
+  min-width: 0;
+}
+
+.button,
+nav a {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .site-header {
   display: flex;
   align-items: center;
@@ -209,6 +222,7 @@ h3 {
   color: var(--color-paper);
   font-family: var(--font-display);
   font-variation-settings: "SOFT" 60, "WONK" 0;
+  overflow-wrap: anywhere;
 }
 
 h1 {
@@ -979,6 +993,19 @@ code {
   font-size: 0.875rem;
 }
 
+.site-footer a {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+}
+
+.site-footer span {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .site-footer p {
   margin: 0;
 }
@@ -1164,6 +1191,15 @@ code {
 }
 
 @media (max-width: 28rem) {
+  nav {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  nav a {
+    width: 100%;
+  }
+
   .plain-facts,
   .plain-facts li {
     align-items: flex-start;

@@ -4,7 +4,9 @@ mod routes;
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{
-    http::{header, HeaderName, HeaderValue, Method},
+    extract::State,
+    http::{header, HeaderName, HeaderValue, Method, StatusCode},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
     Router,
 };
@@ -29,6 +31,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub(crate) struct AppState {
     pub(crate) build_sha: Arc<str>,
     pub(crate) pool: SqlitePool,
+    static_dir: Arc<PathBuf>,
 }
 
 pub(crate) fn app_router(
@@ -36,12 +39,12 @@ pub(crate) fn app_router(
     build_sha: impl Into<Arc<str>>,
     static_dir: impl Into<PathBuf>,
 ) -> Router {
+    let static_dir = static_dir.into();
     let state = AppState {
         build_sha: build_sha.into(),
         pool,
+        static_dir: Arc::new(static_dir.clone()),
     };
-    let static_dir = static_dir.into();
-    let index = static_dir.join("index.html");
 
     let mut general_builder = GovernorConfigBuilder::default().key_extractor(SmartIpKeyExtractor);
     general_builder.per_millisecond(50).burst_size(40);
@@ -78,10 +81,35 @@ pub(crate) fn app_router(
         .merge(write_routes)
         .layer(GovernorLayer::new(general_limit));
 
+    let immutable_assets = Router::new()
+        .nest_service("/assets", ServeDir::new(static_dir.join("assets")))
+        .nest_service("/fonts", ServeDir::new(static_dir.join("fonts")))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=31536000, immutable"),
+        ));
+
     Router::new()
         .route("/health", get(routes::health::handler))
         .nest("/api/v1/demo", demo_api)
-        .fallback_service(ServeDir::new(&static_dir).fallback(ServeFile::new(index)))
+        .merge(immutable_assets)
+        .route_service("/robots.txt", ServeFile::new(static_dir.join("robots.txt")))
+        .route_service("/sitemap.xml", ServeFile::new(static_dir.join("sitemap.xml")))
+        .route_service("/favicon.svg", ServeFile::new(static_dir.join("favicon.svg")))
+        .route_service(
+            "/apple-touch-icon.png",
+            ServeFile::new(static_dir.join("apple-touch-icon.png")),
+        )
+        .route_service(
+            "/social-card.png",
+            ServeFile::new(static_dir.join("social-card.png")),
+        )
+        .route("/", get(spa_index))
+        .route("/demo", get(spa_index))
+        .route("/privacy", get(spa_index))
+        .route("/terms", get(spa_index))
+        .route("/404", get(spa_index))
+        .fallback(not_found)
         .with_state(state)
         .layer(SetResponseHeaderLayer::if_not_present(
             header::X_CONTENT_TYPE_OPTIONS,
@@ -113,6 +141,25 @@ pub(crate) fn app_router(
             HeaderName::from_static("x-request-id"),
             MakeRequestUuid,
         ))
+}
+
+async fn spa_index(State(state): State<AppState>) -> Response {
+    file_response(&state.static_dir.join("index.html"), StatusCode::OK).await
+}
+
+async fn not_found(State(state): State<AppState>) -> Response {
+    file_response(&state.static_dir.join("index.html"), StatusCode::NOT_FOUND).await
+}
+
+async fn file_response(path: &std::path::Path, status: StatusCode) -> Response {
+    match tokio::fs::read_to_string(path).await {
+        Ok(body) => (status, [(header::CACHE_CONTROL, "no-cache")], Html(body)).into_response(),
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "The web application is not available.",
+        )
+            .into_response(),
+    }
 }
 
 #[tokio::main]

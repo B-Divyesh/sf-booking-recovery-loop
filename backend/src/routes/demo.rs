@@ -253,19 +253,10 @@ pub(crate) async fn recover(
 
     let now = Utc::now().timestamp();
     let mut transaction = state.pool.begin().await.map_err(|_| ApiError::internal())?;
-    let existing = sqlx::query_scalar::<_, String>(
-        "SELECT id FROM outbound_messages WHERE workspace_id = ? AND idempotency_key = ?",
-    )
-    .bind(&workspace.id)
-    .bind(&idempotency_key)
-    .fetch_optional(&mut *transaction)
-    .await
-    .map_err(|_| ApiError::internal())?;
-
-    if existing.is_none() && attempt.state != "recovered" {
+    if attempt.state != "recovered" {
         let message_id = Uuid::now_v7().to_string();
-        sqlx::query(
-            "INSERT INTO outbound_messages \
+        let inserted = sqlx::query(
+            "INSERT OR IGNORE INTO outbound_messages \
              (id, workspace_id, attempt_id, idempotency_key, channel, state, created_at) \
              VALUES (?, ?, ?, ?, 'email', 'delivered', ?)",
         )
@@ -277,17 +268,19 @@ pub(crate) async fn recover(
         .execute(&mut *transaction)
         .await
         .map_err(|_| ApiError::internal())?;
-        sqlx::query(
-            "INSERT INTO delivery_events \
-             (id, message_id, status, detail, occurred_at, simulated) \
-             VALUES (?, ?, 'delivered', 'Sample email accepted by the in-process demo mailbox.', ?, 1)",
-        )
-        .bind(Uuid::now_v7().to_string())
-        .bind(&message_id)
-        .bind(now)
-        .execute(&mut *transaction)
-        .await
-        .map_err(|_| ApiError::internal())?;
+        if inserted.rows_affected() == 1 {
+            sqlx::query(
+                "INSERT INTO delivery_events \
+                 (id, message_id, status, detail, occurred_at, simulated) \
+                 VALUES (?, ?, 'delivered', 'Sample email accepted by the in-process demo mailbox.', ?, 1)",
+            )
+            .bind(Uuid::now_v7().to_string())
+            .bind(&message_id)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| ApiError::internal())?;
+        }
         sqlx::query(
             "UPDATE booking_attempts SET state = 'recovered', \
              outcome = 'Sample follow-up delivered' WHERE id = ? AND workspace_id = ?",
@@ -729,13 +722,19 @@ fn timestamp(value: i64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::{str::FromStr, time::Duration};
+
     use axum::{
         body::Body,
         http::{Request, StatusCode},
     };
+    use base64::Engine;
     use http_body_util::BodyExt;
     use serde_json::Value;
-    use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+    use sqlx::{
+        sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
+        SqlitePool,
+    };
     use tower::ServiceExt;
 
     use crate::{app_router, migrations};
@@ -884,7 +883,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn expired_and_non_demo_workspaces_are_never_returned() {
+    async fn demo_never_reads_or_mutates_real_practice_fixture() {
         let (app, pool) = test_app().await;
         let raw_token = "real-workspace-token-that-cannot-be-used";
         sqlx::query(
@@ -909,6 +908,25 @@ mod tests {
             .await
             .expect("lookup should respond");
         assert_eq!(real_lookup.status(), StatusCode::NOT_FOUND);
+
+        let real_mutation = app
+            .clone()
+            .oneshot(request(
+                "POST",
+                "/api/v1/demo/attempts/real-practice:anything/recover",
+                "real-mutation-key",
+                Some(raw_token),
+            ))
+            .await
+            .expect("mutation should respond");
+        assert_eq!(real_mutation.status(), StatusCode::NOT_FOUND);
+        let unchanged: String = sqlx::query_scalar(
+            "SELECT practice_name FROM demo_workspaces WHERE id = 'real-practice'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("real fixture should remain");
+        assert_eq!(unchanged, "Private Practice");
 
         let created = json(
             app.clone()
@@ -986,6 +1004,98 @@ mod tests {
             .expect("limited route should respond");
         assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
         assert!(limited.headers().contains_key("retry-after"));
+    }
+
+    #[tokio::test]
+    async fn portable_token_has_256_random_bits_and_24_hour_expiry() {
+        let now = super::Utc::now().timestamp();
+        let token = super::new_token(now).expect("token");
+        let parsed = super::parse_token(&token).expect("portable token");
+        assert_eq!(
+            super::URL_SAFE_NO_PAD
+                .decode(parsed.entropy)
+                .expect("entropy")
+                .len(),
+            32
+        );
+        assert_eq!(now + super::DEMO_TTL.as_secs() as i64, now + 24 * 60 * 60);
+        let expired = token.replacen(&now.to_string(), &(now - 24 * 60 * 60).to_string(), 1);
+        assert!(super::parse_token(&expired).is_none());
+    }
+
+    #[tokio::test]
+    async fn eight_concurrent_recoveries_never_return_server_error() {
+        let database_path = std::env::temp_dir().join(format!(
+            "booking-recovery-concurrency-{}.db",
+            uuid::Uuid::now_v7()
+        ));
+        let options =
+            SqliteConnectOptions::from_str(&format!("sqlite://{}", database_path.display()))
+                .expect("database url")
+                .create_if_missing(true)
+                .journal_mode(SqliteJournalMode::Wal)
+                .busy_timeout(Duration::from_secs(10));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(8)
+            .connect_with(options)
+            .await
+            .expect("file database");
+        migrations::up(&pool).await.expect("migration");
+        let app = app_router(pool.clone(), "test", "../dist");
+        let created = json(
+            app.clone()
+                .oneshot(request(
+                    "POST",
+                    "/api/v1/demo/workspaces",
+                    "concurrent-create",
+                    None,
+                ))
+                .await
+                .expect("create"),
+        )
+        .await;
+        let token = created["workspaceToken"]
+            .as_str()
+            .expect("token")
+            .to_owned();
+        let attempt = created["workspace"]["attempts"][0]["id"]
+            .as_str()
+            .expect("attempt")
+            .to_owned();
+
+        let mut tasks = tokio::task::JoinSet::new();
+        for number in 0..8 {
+            let service = app.clone();
+            let token = token.clone();
+            let uri = format!("/api/v1/demo/attempts/{attempt}/recover");
+            tasks.spawn(async move {
+                service
+                    .oneshot(request(
+                        "POST",
+                        &uri,
+                        &format!("concurrent-key-{number}"),
+                        Some(&token),
+                    ))
+                    .await
+                    .expect("recovery response")
+                    .status()
+            });
+        }
+        let mut statuses = Vec::new();
+        while let Some(status) = tasks.join_next().await {
+            statuses.push(status.expect("task"));
+        }
+        assert_eq!(statuses.len(), 8);
+        assert!(statuses.iter().all(|status| *status == StatusCode::OK));
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM outbound_messages WHERE attempt_id = ?")
+                .bind(&attempt)
+                .fetch_one(&pool)
+                .await
+                .expect("message count");
+        assert_eq!(count, 1);
+        pool.close().await;
+        let _ = std::fs::remove_file(database_path);
     }
 
     #[tokio::test]

@@ -35,7 +35,7 @@ demo database in the working directory.
 
 ## Run locally
 
-Requirements: Node 22+, npm, and Rust 1.98+.
+Requirements: Node 22+, npm, and current stable Rust.
 
 ```sh
 npm ci

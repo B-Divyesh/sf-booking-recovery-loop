@@ -1,0 +1,12 @@
+HTTP/1.1 404 Not Found
+content-type: text/html; charset=utf-8
+cache-control: no-cache
+x-content-type-options: nosniff
+referrer-policy: strict-origin-when-cross-origin
+x-frame-options: DENY
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'
+x-request-id: 4b33e780-9c55-49fc-8f1f-2014aea73859
+content-length: 2316
+date: Fri, 28 Aug 2026 20:58:58 GMT
+

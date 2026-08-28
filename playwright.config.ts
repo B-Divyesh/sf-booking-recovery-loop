@@ -28,6 +28,9 @@ export default defineConfig({
       STATIC_DIR: "dist"
     },
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000
+    // A clean Rust toolchain can spend several minutes compiling sqlx. Claims
+    // are required to pass from a cold clone, so the harness must wait for the
+    // product rather than timing out while it is still building.
+    timeout: 360_000
   }
 });

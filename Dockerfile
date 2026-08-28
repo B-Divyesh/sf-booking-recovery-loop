@@ -13,11 +13,9 @@ FROM rust:1-slim AS api-build
 ARG BUILD_SHA=dev
 ENV BUILD_SHA=${BUILD_SHA}
 WORKDIR /workspace/backend
-
 COPY backend/Cargo.toml backend/Cargo.lock backend/build.rs ./
 COPY backend/migrations ./migrations
 COPY backend/src ./src
-
 RUN cargo build --release --locked && mkdir -p /data
 
 FROM gcr.io/distroless/cc-debian12:nonroot
@@ -28,7 +26,6 @@ ENV STATIC_DIR=/app/dist
 COPY --from=api-build /workspace/backend/target/release/booking-recovery-loop-api /app/booking-recovery-loop-api
 COPY --from=web-build /workspace/dist /app/dist
 COPY --from=api-build --chown=nonroot:nonroot /data /data
-
 USER nonroot:nonroot
 WORKDIR /data
 EXPOSE 8080

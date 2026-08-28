@@ -3,15 +3,36 @@
     "id": "demo-isolated",
     "claim": "Demo sample data stays separate from real practice data.",
     "where": "Demo banner and demo entry",
-    "test": "npm run test:e2e -- --grep @claim:demo-isolated",
-    "sandbox": "Fresh browser context opens /demo, captures the demo workspace token, and asserts every demo API request includes only that workspace; a fixture real-practice record is not returned or mutated."
+    "test": "cargo test --manifest-path backend/Cargo.toml demo_never_reads_or_mutates_real_practice_fixture",
+    "sandbox": "An isolated database inserts a non-demo practice fixture, then proves demo read and mutation requests both return 404 and the fixture remains unchanged."
+  },
+  {
+    "id": "demo-lifetime",
+    "claim": "Demo tokens use 256 random bits and sample workspaces expire after 24 hours.",
+    "where": "README, privacy page, demo documentation",
+    "test": "cargo test --manifest-path backend/Cargo.toml portable_token_has_256_random_bits_and_24_hour_expiry",
+    "sandbox": "Generates and parses a token, decodes 32 random bytes, checks the exact 24-hour TTL, and rejects an expired token."
+  },
+  {
+    "id": "forwarded-rate-limit",
+    "claim": "Demo writes are limited per first forwarded client IP and limited requests include a retry time.",
+    "where": "README and terms",
+    "test": "cargo test --manifest-path backend/Cargo.toml write_limit_uses_forwarded_ip_and_returns_retry_after",
+    "sandbox": "An isolated router sends 13 writes from one X-Forwarded-For address and asserts the thirteenth returns 429 with Retry-After."
+  },
+  {
+    "id": "demo-no-account-payment",
+    "claim": "The sample opens without an account or payment.",
+    "where": "Landing first screen and terms",
+    "test": "npm run test:e2e -- --grep @claim:demo-no-account-payment",
+    "sandbox": "A fresh browser opens the complete seeded demo and records that no login, checkout, or payment request occurs."
   },
   {
     "id": "demo-reset",
     "claim": "Reset demo starts a fresh set of sample bookings.",
     "where": "Demo banner",
     "test": "npm run test:e2e -- --grep @claim:demo-reset",
-    "sandbox": "Fresh /demo workspace changes the seeded recovery state, selects Reset demo, and asserts a new demo token and the original seeded booking states are visible."
+    "sandbox": "Fresh /demo workspace changes the recovery state, selects Reset demo, asserts a new token and original states, then proves the old workspace returns 404."
   },
   {
     "id": "consent-gates-recovery",

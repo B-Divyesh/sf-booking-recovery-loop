@@ -1,6 +1,6 @@
 # Booking Recovery Loop — venture plan
 
-**Status:** M1 built, deployed, and verified; independent review and polish pending.
+**Status:** M1 QA defects repaired; M2–M6 remain required before product release.
 **Product URL:** `https://booking-recovery-loop.sociobot.in`
 **Planning date:** 2026-08-28
 

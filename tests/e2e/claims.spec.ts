@@ -12,7 +12,7 @@ function ticketFor(page: import("@playwright/test").Page, clientName: string) {
   return page.locator('[data-action="select-attempt"]').filter({ hasText: clientName });
 }
 
-test("@claim:demo-isolated keeps the sample in its own workspace", async ({ page }) => {
+test("browser demo requests remain scoped to their sample token", async ({ page }) => {
   const apiRequests: Array<{ url: string; token?: string }> = [];
   page.on("request", (request) => {
     if (request.url().includes("/api/v1/demo/")) {
@@ -37,12 +37,35 @@ test("@claim:demo-isolated keeps the sample in its own workspace", async ({ page
   await expect(page.getByText("Private Practice")).toHaveCount(0);
 });
 
-test("@claim:demo-reset restores fresh sample bookings", async ({ page }) => {
+test("browser displays the server-issued 24-hour workspace token", async ({ page }) => {
+  await openReadyDemo(page);
+  const token = await page.evaluate((key) => localStorage.getItem(key), demoTokenKey);
+  expect(token).toMatch(/^v1\.[A-Za-z0-9_-]{43}\.\d{10}\.fresh$/);
+  const createdSeconds = Number(token?.split(".")[2]);
+  const expires = await page.locator("body").evaluate(() => {
+    const stored = localStorage.getItem("demo:workspace-token");
+    return Number(stored?.split(".")[2]) + 24 * 60 * 60;
+  });
+  expect(expires - createdSeconds).toBe(24 * 60 * 60);
+});
+
+test("@claim:demo-no-account-payment opens without account or payment", async ({ page }) => {
+  const requests: string[] = [];
+  page.on("request", (request) => requests.push(request.url()));
+  await page.goto("/");
+  await expect(page.getByText("No account needed")).toBeVisible();
+  await page.getByRole("link", { name: "Try it with sample data" }).click();
+  await expect(page.locator('[data-action="select-attempt"]')).toHaveCount(3);
+  expect(requests.some((url) => /login|checkout|payment/i.test(url))).toBe(false);
+});
+
+test("@claim:demo-reset restores fresh sample bookings", async ({ page, request }) => {
   await openReadyDemo(page);
   const oldToken = await page.evaluate((key) => localStorage.getItem(key), demoTokenKey);
   await ticketFor(page, "Maya Patel").click();
   await page.getByRole("button", { name: "Run sample follow-up" }).click();
   await expect(ticketFor(page, "Maya Patel")).toContainText("Recovered in demo");
+  const activeToken = await page.evaluate((key) => localStorage.getItem(key), demoTokenKey);
 
   await Promise.all([
     page.waitForResponse((response) => response.url().endsWith("/api/v1/demo/reset")),
@@ -52,6 +75,11 @@ test("@claim:demo-reset restores fresh sample bookings", async ({ page }) => {
   await expect(ticketFor(page, "Maya Patel")).toContainText("Needs a follow-up");
   const newToken = await page.evaluate((key) => localStorage.getItem(key), demoTokenKey);
   expect(newToken).not.toBe(oldToken);
+  expect(newToken).not.toBe(activeToken);
+  const oldWorkspace = await request.get("/api/v1/demo/workspace", {
+    headers: { "X-Demo-Workspace": activeToken ?? "" }
+  });
+  expect(oldWorkspace.status()).toBe(404);
 });
 
 test("@claim:consent-gates-recovery stops a message without consent", async ({ page }) => {

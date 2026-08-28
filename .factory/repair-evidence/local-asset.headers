@@ -1,0 +1,14 @@
+HTTP/1.1 200 OK
+content-type: text/javascript
+accept-ranges: bytes
+last-modified: Fri, 28 Aug 2026 20:55:58 GMT
+content-length: 26016
+cache-control: public, max-age=31536000, immutable
+x-content-type-options: nosniff
+referrer-policy: strict-origin-when-cross-origin
+x-frame-options: DENY
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'
+x-request-id: 1ebc4b28-89ea-4ca2-be5b-f315bb0250e5
+date: Fri, 28 Aug 2026 20:58:58 GMT
+
