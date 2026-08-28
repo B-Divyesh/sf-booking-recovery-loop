@@ -4,8 +4,8 @@
 
 **Date:** 2026-08-28
 
-**Milestone status:** built and locally verified; independent review and polish
-remain the gate before M2.
+**Milestone status:** built, deployed, and verified; independent review and
+polish remain the gate before M2.
 
 ## What shipped
 
@@ -95,8 +95,22 @@ Runtime variables are optional: `PORT`, `DATABASE_URL`, and `STATIC_DIR`.
 There are no secrets in M1. The image defaults to port 8080, `/app/dist`, and
 a generated local SQLite file under the non-root `/data` working directory.
 
-Live deployment and cold verification evidence are appended after the final
-factory deployment step.
+The factory deployed commit `b0ea43e6dadf17bc368f521792caacba81cfb134`.
+Cold verification against `https://booking-recovery-loop.sociobot.in` found:
+
+```text
+GET /                                      200
+GET /privacy, /terms, /404                 200 each
+GET /health                                status ok; matching build SHA
+verify-url load                            586 ms
+title / lang / h1 / main / image alts      pass
+browser console errors                     0
+live mobile demo recovery                  pass
+live demo request origins                  booking-recovery-loop.sociobot.in only
+```
+
+Screenshots, fetched HTML, and the verification JSON are in
+`.factory/evidence/m1-live/`.
 
 ## Scope decision and M2 brief
 

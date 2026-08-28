@@ -1,6 +1,6 @@
 # Current handoff — Booking Recovery Loop M1
 
-M1 is built and locally verified. The product now has a public landing page,
+M1 is built, deployed, and verified. The product now has a public landing page,
 an isolated server-backed demo, consent-gated sample recovery, simulated
 delivery receipts, complete policy/error routes, and claim-level tests.
 
@@ -18,6 +18,10 @@ npm run check:size
 Detailed evidence, migration notes, scope decisions, deployment configuration,
 known boundaries, and the M2 brief are in
 [.factory/handoff-m1.md](handoff-m1.md).
+
+The live product is `https://booking-recovery-loop.sociobot.in`. Its health
+endpoint reports deployed build
+`b0ea43e6dadf17bc368f521792caacba81cfb134`.
 
 ## Needs operator action for M2
 

@@ -1,6 +1,6 @@
 # Booking Recovery Loop — venture plan
 
-**Status:** M1 built and locally verified; independent review and polish pending.
+**Status:** M1 built, deployed, and verified; independent review and polish pending.
 **Product URL:** `https://booking-recovery-loop.sociobot.in`
 **Planning date:** 2026-08-28
 
@@ -306,7 +306,7 @@ appears on a screen; one tagged test proves each claim from a clean sandbox.
 
 ### M1 — Public promise and isolated recovery-loop demo
 
-**Status:** built and locally verified; independent review/polish pending
+**Status:** built, deployed, and verified; independent review/polish pending
 **Goal:** A stranger can open the public page, start a sample workspace in one
 click, run a representative abandoned-booking recovery loop, and understand
 that it has not sent a real message.
