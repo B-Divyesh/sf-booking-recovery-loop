@@ -1,0 +1,12 @@
+.git
+.github
+node_modules
+dist
+backend/target
+test-results
+playwright-report
+*.db
+*.db-shm
+*.db-wal
+.factory/verification-artifacts
+.factory/repair-evidence
