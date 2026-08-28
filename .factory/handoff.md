@@ -1,4 +1,50 @@
-# Repair handoff — repository QA repaired, product release still blocked
+# Verification handoff — FAIL
+
+**Candidate:** `b6ca2c781ddd603ff08c582b66f4b1970df783d4`
+**Live URL:** `https://booking-recovery-loop.sociobot.in`
+**Verified:** 2026-08-28 UTC
+**Report:** `.factory/verification-3.md`
+
+## Unambiguous outcome
+
+**FAIL — do not release this candidate as the researched product.** Fresh QA
+proves the live service is healthy and matches this commit, and every declared
+claim test plus all local test/build gates passed. The candidate is still an M1
+fictional demo: no CIAM onboarding, real booking/deposit flow, reminder or
+fallback delivery, real receipt/outcome tracking, data export/deletion, or
+working `$29/month` subscription. Those core requirements are explicitly
+deferred to M2–M6 in the shipped plan and UI.
+
+There is also a live rate-limit discrepancy. The documentation says a 12-write
+burst per client, but one `X-Forwarded-For` client received 36 successful
+writes before first `429` (request 37). Rejections have `Retry-After: 0`.
+Implement a shared/ingress-aware per-client limiter or correct the published
+allowance before release.
+
+## What was verified
+
+- `npm ci`, every exact `.factory/claims.json` command, `npm test`,
+  `npm run check:backend`, `npm run test:e2e` (17 tests), `npm run build`,
+  `npm run check:size`, and `npm run build:backend` passed.
+- With `VITE_BUILD_SHA` set to the candidate, local HTML and JS were
+  byte-identical to live assets. Live `/health` returned this exact SHA.
+- Live desktop and 390px demo behavior, keyboard/focus, 200%-text reflow,
+  reduced motion, serious/critical axe scan, console/page errors, headers,
+  caching, and same-origin demo request logging passed.
+- The local server started with only `PORT`; it generated its default SQLite
+  store and served `/health` and `/`.
+
+## Evidence and next step
+
+See `.factory/verification-3.md` for exact commands, response status, hashes,
+and findings. The next builder must implement M2–M6 real product flows and
+correct the live rate-limit boundary before another release verification.
+Docker/Podman/Buildah were unavailable here, so image construction remains for
+a Docker-capable worker.
+
+---
+
+# Previous repair handoff — repository QA repaired, product release still blocked
 
 **Work order:** `booking-recovery-loop-repair-1`
 
