@@ -788,4 +788,33 @@ mod tests {
         .expect("catalog should query");
         assert_eq!(table_count, 0);
     }
+
+    #[tokio::test]
+    async fn write_limit_uses_forwarded_ip_and_returns_retry_after() {
+        let (app, _) = test_app().await;
+        for request_number in 0..12 {
+            let response = app
+                .clone()
+                .oneshot(request(
+                    "POST",
+                    "/api/v1/demo/workspaces",
+                    &format!("rate-key-{request_number}"),
+                    None,
+                ))
+                .await
+                .expect("limited route should respond");
+            assert_eq!(response.status(), StatusCode::CREATED);
+        }
+        let limited = app
+            .oneshot(request(
+                "POST",
+                "/api/v1/demo/workspaces",
+                "rate-key-final",
+                None,
+            ))
+            .await
+            .expect("limited route should respond");
+        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(limited.headers().contains_key("retry-after"));
+    }
 }

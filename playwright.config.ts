@@ -3,10 +3,11 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: "**/*.spec.ts",
-  fullyParallel: true,
+  fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["html", { open: "never" }], ["list"]] : "list",
+  workers: 1,
   use: {
     baseURL: "http://127.0.0.1:4173",
     trace: "retain-on-failure",
@@ -19,9 +20,14 @@ export default defineConfig({
     }
   ],
   webServer: {
-    command: "npm run dev -- --port 4173",
+    command: "npm run test:server",
     url: "http://127.0.0.1:4173",
+    env: {
+      PORT: "4173",
+      DATABASE_URL: "sqlite://booking-recovery-loop-e2e.db",
+      STATIC_DIR: "dist"
+    },
     reuseExistingServer: !process.env.CI,
-    timeout: 30_000
+    timeout: 120_000
   }
 });

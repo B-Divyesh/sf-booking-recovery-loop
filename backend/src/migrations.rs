@@ -1,6 +1,7 @@
 use sqlx::{Executor, SqlitePool};
 
 const UP: &str = include_str!("../migrations/0001_demo_workspaces.up.sql");
+#[cfg(test)]
 const DOWN: &str = include_str!("../migrations/0001_demo_workspaces.down.sql");
 
 pub(crate) async fn up(pool: &SqlitePool) -> Result<(), sqlx::Error> {
