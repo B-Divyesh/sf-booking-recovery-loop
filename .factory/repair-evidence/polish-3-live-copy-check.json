@@ -1,0 +1,7 @@
+{
+  "headline": "Recover unfinished paid-session bookings",
+  "checkoutState": true,
+  "dataInventory": true,
+  "recoveryTiming": true,
+  "cardBoundary": true
+}

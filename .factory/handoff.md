@@ -1,51 +1,78 @@
-# Review 3 handoff — Booking Recovery Loop
+# Polish 3 handoff — Booking Recovery Loop
 
-**Work order:** `booking-recovery-loop-review-3`
+**Work order:** `booking-recovery-loop-polish-3`
+**Reviewed candidate:** `256bde53b0e8107421ceda018d4b3a61203ce894`
+**Deployed source:** `15bd99b9765cdbfc6cf25316948b37615323cf25`
+**Live URL:** https://booking-recovery-loop.sociobot.in
 
-**Reviewed commit/live build:** `256bde53b0e8107421ceda018d4b3a61203ce894`
+## What changed
 
-**Verdict:** **FAIL**
+- Rewrote the landing headline as **“Recover unfinished paid-session
+  bookings”** and updated home metadata. The direct `/?demo=1` path keeps its
+  persistent isolated-data banner, reset control, and start-for-real exit.
+- Added a durable, measured 15-minute recovery-schedule claim, a complete
+  practice-data-inventory claim, a no-card-data browser claim, and a distinct
+  automatic-reminder claim test. The privacy page now names every stored
+  record type consistently.
+- Added an owner-only **Send delivery test** action. It sends a connection-test
+  payload without recipient or client data and never creates a booking.
+- Preserved the product's twilight appointment-rail visual system, route
+  titles, focus handoff, designed 404, legal links, mobile layout, and local
+  demo namespace.
+- Added the live ingress probe to `scripts/verify-live.mjs`. It requires twelve
+  accepted demo writes and a thirteenth `429` with `Retry-After`.
 
-## What was done
+## Verification evidence
 
-- Reviewed the live product cold at 390 × 844 and 1440 × 1000.
-- Exercised the one-click demo, recovery receipt, reset, exit, storage
-  isolation, request origins, and console.
-- Ran all 19 commands in `.factory/claims.json` from a clean clone.
-- Ran the complete unit, backend, deployment, browser, build, and size gates.
-- Crawled all rendered internal links and checked metadata, 404 behavior,
-  route focus/back behavior, live axe results, and the factory URL verifier.
-- Rechecked every earlier review, polish, handoff, and verification finding in
-  the live deployment and source.
-- Audited every landing-page and README sentence, heading, label, and action.
-
-The full evidence and concrete fixes are in `.factory/review-3.md`. Product
-code was not modified.
-
-## Verification summary
+All 23 declared claim commands were run individually in a clean clone at
+`/tmp/booking-recovery-final-clean.icZuvD`, after `npm ci`. The clean clone also
+passed:
 
 ```text
-19/19 declared claim commands passed from a clean clone
 npm test                  10 passed
-npm run check:backend     15 passed; rustfmt passed
-npm run test:deployment  passed
-npm run test:e2e          26 passed
-npm run build             passed; dist/ produced
-npm run check:size        JS 12,323 bytes gzip
-live verify-url           passed; zero console errors
-live axe                  zero violations at desktop and 390 px
-live internal link crawl  all rendered targets returned 200
-live missing route        designed 404 with HTTP 404
+npm run check:backend     19 passed
+npm run test:deployment   passed
+npm run build             dist/ produced
+npm run check:size        JS 12,457 bytes gzip; CSS 21,906 bytes raw
+npm run test:e2e          27 passed
 ```
 
-## Remaining blockers
+Final live verification against deployed `15bd99b`:
 
-1. The deployed limiter advertises 12 writes but allowed 24 before returning
-   `429`, regressing the earlier production fix.
-2. Real setup still requires a customer-operated payment URL and delivery
-   webhook, while the advertised $29 checkout remains unavailable.
-3. The exact 15-minute recovery promise is absent from `claims.json`; its test
-   forces jobs due and never asserts that delay.
+```text
+GET /health               200; build_sha 15bd99b9765cdbfc6cf25316948b37615323cf25
+scripts/verify-live.mjs   passed: demo, reset, real setup, booking, consent,
+                           export/delete, routes, mobile, console, ingress limit
+verify-url.sh             passed: title, lang, h1, main, image alt, no console errors
+live axe                  0 violations on / desktop; /demo, /privacy, /terms at 390 px
+Lighthouse mobile         Performance 100; Accessibility 100; Best Practices 100; SEO 100
+LCP / CLS                 1.51 s / 0
+```
 
-Additional privacy and copy findings are recorded in the review. The tree was
-left buildable and only review documentation was changed.
+Final evidence is committed under `.factory/repair-evidence/`:
+
+- `polish-3-live-final/live-check.json` — cold live workflow and 12/13 ingress result.
+- `polish-3-verify-url-final/verify.json` — semantic and console verifier result.
+- `polish-3-live-final-axe.json` — live axe scans.
+- `polish-3-live-final-lighthouse.json` — Lighthouse report.
+- `polish-3-live-copy-check.json` — first-screen, privacy, timing, and card-boundary copy.
+
+## Known external limitation / operator action
+
+The factory billing registry has not enabled the required product. A direct
+check of `https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout`
+returned HTTP `404` with `{"error":"enabled factory product","status":404}`;
+the captured headers and body are in
+`.factory/repair-evidence/polish-3-billing-check.*`.
+
+The repository must not create or alter billing products. To open the stated
+$29 monthly plan, the factory billing operator must register and enable the
+`booking-recovery-loop` Sociobot product. The UI deliberately says checkout is
+unavailable rather than exposing a dead payment link. A practice can already
+connect its existing hosted payment page and delivery endpoint, verify that
+delivery connection without client data, and use the recovery workflow.
+
+This external registration and a first-party, non-developer messaging-provider
+connection are the remaining parts of review finding `F-3-2`; they cannot be
+completed from this repository or with the runtime credentials supplied to the
+container.

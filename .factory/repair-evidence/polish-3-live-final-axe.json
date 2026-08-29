@@ -1,0 +1,38 @@
+[
+  {
+    "url": "https://booking-recovery-loop.sociobot.in/",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "seriousOrCritical": [],
+    "violationCount": 0
+  },
+  {
+    "url": "https://booking-recovery-loop.sociobot.in/demo",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "seriousOrCritical": [],
+    "violationCount": 0
+  },
+  {
+    "url": "https://booking-recovery-loop.sociobot.in/privacy",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "seriousOrCritical": [],
+    "violationCount": 0
+  },
+  {
+    "url": "https://booking-recovery-loop.sociobot.in/terms",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "seriousOrCritical": [],
+    "violationCount": 0
+  }
+]
