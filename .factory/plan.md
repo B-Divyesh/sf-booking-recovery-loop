@@ -1,8 +1,25 @@
 # Booking Recovery Loop — venture plan
 
-**Status:** M1 QA defects repaired; M2–M6 remain required before product release.
+**Status:** Polish 1 release slice implemented; demo and core practice workflow are live candidates.
 **Product URL:** `https://booking-recovery-loop.sociobot.in`
 **Planning date:** 2026-08-28
+
+## Polish 1 implementation note
+
+The adversarial review required the real job before the planned milestone
+sequence could continue. Polish 1 therefore implements the core M2–M5 path in
+one bounded release: an owner-token practice workspace, a public paid-session
+page, timestamped channel consent, hosted-payment handoff and authenticated
+payment confirmation, provider delivery receipts, one permitted bounce
+fallback, encrypted contact fields, tenant-scoped export, and deletion. The
+original `/demo` boundary remains unchanged.
+
+The release uses a 256-bit private practice key instead of Entra because the
+shared callback is not registered for this product. It does not advertise or
+link the $29 subscription because the required Sociobot product endpoint
+currently returns 404. These external registrations cannot be created from the
+repository; the product remains usable without pretending either gateway is
+active.
 
 This is the execution contract for every milestone worker. Read this file, the
 brief, the current design thesis, and every prior milestone handoff before
@@ -353,7 +370,7 @@ polish must pass before M2.
 
 ### M2 — Practice accounts, persistence, and subscription access
 
-**Status:** planned
+**Status:** core persistence shipped in Polish 1; external Entra and Sociobot product registration unavailable
 **Goal:** An owner can sign in, create a practice, retain its setup safely, and
 start or manage the $29/month Recovery Loop Practice subscription.
 
@@ -384,7 +401,7 @@ pass.
 
 ### M3 — Real branded paid-session page
 
-**Status:** planned
+**Status:** shipped in Polish 1 with hosted-payment URL and authenticated payment callback
 **Goal:** A practice can publish one focused session page that creates a real,
 consented booking attempt and completes a Stripe-hosted deposit flow.
 
@@ -415,7 +432,7 @@ demo regression, migration reversal, review, and handoff pass.
 
 ### M4 — Reminder delivery and accountable fallback
 
-**Status:** planned
+**Status:** shipped in Polish 1 through the HTTPS provider adapter and authenticated receipt callback
 **Goal:** The practice can protect a booked session with reminders, visible
 delivery proof, and one consented fallback when the first delivery bounces or
 fails.
@@ -446,7 +463,7 @@ and handoff pass.
 
 ### M5 — Data rights and operational control
 
-**Status:** planned
+**Status:** core export and deletion shipped in Polish 1
 **Goal:** A practice can manage what is happening, export its records, and
 request deletion without support intervention.
 

@@ -367,9 +367,9 @@ function notFoundContent(): string {
   return `
     <section class="not-found-page">
       <div class="lost-ticket" aria-hidden="true"><span></span><span></span><span></span></div>
-      <p class="eyebrow">404 · off the rail</p>
+      <p class="eyebrow">Page not found</p>
       <h1 tabindex="-1">That page is not here</h1>
-      <p>The booking rail ends here. Return home or open the sample workspace.</p>
+      <p>Check the address, return home, or open the sample workspace.</p>
       <div class="button-row"><a class="button button-primary" href="/">Go to the home page</a><a class="button button-secondary" href="/demo">Try the sample</a></div>
     </section>`;
 }

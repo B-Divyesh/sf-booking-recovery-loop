@@ -1,0 +1,106 @@
+
+> booking-recovery-loop@0.1.0 test
+> vitest run
+
+
+ RUN  v3.2.7 /tmp/brl-polish-clean-7Af5qE/repo
+
+ ✓ src/lib/site.test.ts (6 tests) 4ms
+ ✓ src/lib/demo.test.ts (4 tests) 7ms
+
+ Test Files  2 passed (2)
+      Tests  10 passed (10)
+   Start at  00:57:55
+   Duration  673ms (transform 115ms, setup 0ms, collect 194ms, tests 11ms, environment 2ms, prepare 368ms)
+
+
+> booking-recovery-loop@0.1.0 check:backend
+> cargo fmt --manifest-path backend/Cargo.toml --check && cargo test --manifest-path backend/Cargo.toml
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-1360ad25e07ed784)
+
+running 14 tests
+test routes::demo::tests::demo_never_reads_or_mutates_real_practice_fixture ... ok
+test routes::demo::tests::demo_recovery_is_consent_gated_and_records_a_simulated_receipt ... ok
+test routes::demo::tests::migration_is_reversible ... ok
+test routes::demo::tests::portable_token_has_256_random_bits_and_24_hour_expiry ... ok
+test routes::demo::tests::portable_token_preserves_state_across_replica_databases ... ok
+test routes::demo::tests::reset_replaces_the_token_and_restores_the_seed ... ok
+test routes::demo::tests::write_limit_uses_forwarded_ip_and_returns_retry_after ... ok
+test routes::health::tests::reports_the_build_identifier ... ok
+test routes::demo::tests::eight_concurrent_recoveries_never_return_server_error ... ok
+test routes::practice::tests::delivery_acceptance_bounce_fallback_and_receipts_are_idempotent ... ok
+test routes::practice::tests::export_and_delete_cover_the_complete_practice_record ... ok
+test routes::practice::tests::occupied_slot_cannot_be_double_booked ... ok
+test routes::practice::tests::hosted_payment_requires_verified_callback_and_is_idempotent ... ok
+test routes::practice::tests::production_contacts_are_encrypted_and_tenant_scoped ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+
+> booking-recovery-loop@0.1.0 test:deployment
+> node scripts/check-deployment.mjs
+
+M1 deployment boundary: one ingress-routed replica on port 8080
+
+> booking-recovery-loop@0.1.0 test:e2e
+> playwright test
+
+[WebServer] (node:17299) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer]     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.16s
+[WebServer]      Running `backend/target/debug/booking-recovery-loop-api`
+
+Running 25 tests using 1 worker
+
+(node:17327) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17327) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [chromium] › tests/e2e/accessibility.spec.ts:22:3 › / has route metadata and no serious accessibility violations (1.1s)
+  ✓   2 [chromium] › tests/e2e/accessibility.spec.ts:22:3 › /demo has route metadata and no serious accessibility violations (1.1s)
+  ✓   3 [chromium] › tests/e2e/accessibility.spec.ts:22:3 › /start has route metadata and no serious accessibility violations (855ms)
+  ✓   4 [chromium] › tests/e2e/accessibility.spec.ts:22:3 › /app has route metadata and no serious accessibility violations (823ms)
+  ✓   5 [chromium] › tests/e2e/accessibility.spec.ts:22:3 › /app/settings/data has route metadata and no serious accessibility violations (757ms)
+  ✓   6 [chromium] › tests/e2e/accessibility.spec.ts:22:3 › /privacy has route metadata and no serious accessibility violations (792ms)
+  ✓   7 [chromium] › tests/e2e/accessibility.spec.ts:22:3 › /terms has route metadata and no serious accessibility violations (806ms)
+  ✓   8 [chromium] › tests/e2e/accessibility.spec.ts:22:3 › /missing-page has route metadata and no serious accessibility violations (789ms)
+  ✓   9 [chromium] › tests/e2e/accessibility.spec.ts:45:1 › keyboard users can skip, select, and run the recovery (614ms)
+  ✓  10 [chromium] › tests/e2e/accessibility.spec.ts:61:1 › expected consent stop does not create a console error (356ms)
+  ✓  11 [chromium] › tests/e2e/accessibility.spec.ts:73:1 › 390px at 200 percent text reflows and keeps 44px footer targets (299ms)
+  ✓  12 [chromium] › tests/e2e/accessibility.spec.ts:87:1 › unknown pages return 404 and immutable assets are cached (229ms)
+  ✓  13 [chromium] › tests/e2e/accessibility.spec.ts:97:1 › security response policy and offline error state are explicit (300ms)
+  ✓  14 [chromium] › tests/e2e/accessibility.spec.ts:109:1 › history navigation restores the route and focuses its heading (325ms)
+  ✓  15 [chromium] › tests/e2e/accessibility.spec.ts:119:1 › public booking page is accessible and reflows at 390px (883ms)
+  ✓  16 [chromium] › tests/e2e/claims.spec.ts:21:1 › browser demo requests remain scoped to their sample token (491ms)
+  ✓  17 [chromium] › tests/e2e/claims.spec.ts:46:1 › browser displays the server-issued 24-hour workspace token (300ms)
+  ✓  18 [chromium] › tests/e2e/claims.spec.ts:58:1 › @claim:demo-no-account-payment opens without account or payment (312ms)
+  ✓  19 [chromium] › tests/e2e/claims.spec.ts:68:1 › @claim:demo-reset restores fresh sample bookings (620ms)
+  ✓  20 [chromium] › tests/e2e/claims.spec.ts:91:1 › @claim:consent-gates-recovery stops a message without consent (546ms)
+  ✓  21 [chromium] › tests/e2e/claims.spec.ts:105:1 › @claim:demo-recovery-receipt adds a timestamped simulated receipt (404ms)
+  ✓  22 [chromium] › tests/e2e/claims.spec.ts:115:1 › @claim:demo-no-external-requests keeps the full demo flow same-origin (576ms)
+  ✓  23 [chromium] › tests/e2e/claims.spec.ts:131:1 › @claim:sample-three-bookings opens one-click sample data (245ms)
+  ✓  24 [chromium] › tests/e2e/claims.spec.ts:138:1 › @claim:practice-publish creates a private workspace and public page (617ms)
+  ✓  25 [chromium] › tests/e2e/claims.spec.ts:153:1 › @claim:booking-consent-record saves consent before hosted payment (478ms)
+
+  25 passed (19.4s)
+
+> booking-recovery-loop@0.1.0 build
+> tsc --noEmit && vite build
+
+vite v6.4.3 building for production...
+transforming...
+✓ 9 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                  2.33 kB │ gzip:  0.70 kB
+dist/assets/index-CrB44CP8.css  21.56 kB │ gzip:  4.87 kB
+dist/assets/index-D9CTfFvb.js   41.19 kB │ gzip: 12.12 kB │ map: 79.36 kB
+✓ built in 269ms
+
+> booking-recovery-loop@0.1.0 check:size
+> node scripts/check-bundle.mjs
+
+index-CrB44CP8.css: 21564 bytes (raw; limit 51200)
+index-D9CTfFvb.js: 12123 bytes (gzip; limit 204800)
