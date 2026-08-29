@@ -1,9 +1,10 @@
-# Repair 7 handoff — in progress deployment verification
+# Repair 7 handoff — complete
 
 **Work order:** `booking-recovery-loop-repair-7`
 **Base candidate:** `649a5e7efd92d84aae17290332337b7e5eebb096`
 **Live URL:** https://booking-recovery-loop.sociobot.in
-**Decision:** repaired source; deployment evidence follows the committed image.
+**Decision:** deployed and verified at commit `1c9c81ba985a` (Container App
+revision `sf-booking-recovery-loop--0000027`, three replicas).
 
 ## Repair summary
 
@@ -113,6 +114,27 @@ cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings
 The repaired local run passed 10 frontend unit tests, 23 Rust API tests, and
 27 Playwright browser tests. The cross-replica regression is
 `shared_durable_store_prevents_the_verifier_cross_replica_read_and_delete_split`.
+
+## Final live evidence
+
+- ACR clean build `chwf` produced
+  `sociobotregistry.azurecr.io/sf-booking-recovery-loop:1c9c81ba985a`.
+  `/health` reports build `1c9c81ba985a`.
+- The exact verifier-style independent-connection probe created one demo
+  workspace, then made 90 no-keepalive reads with distinct forwarded IPs:
+  **90 × 200**. This proves the token is visible across the live replicas.
+- Thirteen no-keepalive, independently connected demo writes from the same
+  forwarded IP returned **12 × 201 and 1 × 429**, with `Retry-After: 60`.
+  This proves the production 12-write allowance is shared rather than
+  multiplied per replica. The browser live verifier separately passed its
+  13-write check and confirms the 40-read policy headers.
+- `node scripts/verify-live.mjs https://booking-recovery-loop.sociobot.in
+  .factory/repair-evidence/repair-7-live` passed: desktop/mobile screenshots,
+  routes, offline/demo privacy behavior, 303 Dodo checkout, no console errors,
+  mobile overflow, and rate limit evidence are retained in that directory.
+- An unauthenticated `GET /api/v1/practice` returns `401` and
+  `WWW-Authenticate: Bearer`; the production CSP permits only the required
+  Entra and Sociobot API origins in addition to same-origin.
 
 ## Known scope / operator evidence
 
