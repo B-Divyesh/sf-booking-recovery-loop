@@ -32,7 +32,7 @@ describe("site routes and metadata", () => {
   });
 
   it("uses a plain job as the landing heading", () => {
-    expect(pageFor("/").heading).toBe("Recover paid sessions before they disappear");
+    expect(pageFor("/").heading).toBe("Recover unfinished paid-session bookings");
     expect(pageFor("/").description.length).toBeLessThanOrEqual(155);
   });
 });

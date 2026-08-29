@@ -119,6 +119,13 @@
     "sandbox": "An isolated provider receives one accelerated due recovery. A second due job with consent withdrawn is marked stopped, and a second scheduler run creates no duplicate send."
   },
   {
+    "id": "automatic-recovery-delay",
+    "claim": "The service schedules a consented recovery message 15 minutes after an unpaid booking.",
+    "where": "Practice setup and README",
+    "test": "cargo test --manifest-path backend/Cargo.toml automatic_recovery_is_scheduled_exactly_15_minutes_after_unpaid_booking",
+    "sandbox": "A controlled isolated booking records the durable recovery due time and asserts it is exactly 15 minutes after creation, allowing only the test's measured clock interval."
+  },
+  {
     "id": "automatic-reminder",
     "claim": "A verified deposit queues one durable session reminder.",
     "where": "README product workflow and recovery queue",
@@ -126,10 +133,31 @@
     "sandbox": "An isolated payment callback accepts one authenticated paid event and asserts the database contains exactly one queued session-reminder job."
   },
   {
+    "id": "practice-data-inventory",
+    "claim": "A real workspace stores practice settings, bookings, consent records, scheduled messages, and delivery receipts.",
+    "where": "Privacy page",
+    "test": "cargo test --manifest-path backend/Cargo.toml practice_data_inventory_matches_the_exported_record_types",
+    "sandbox": "An isolated practice creates a consented booking, scheduled recovery, and receipt, then checks the owner export contains each stated record type."
+  },
+  {
+    "id": "card-data-excluded",
+    "claim": "The booking form has no card fields; payment card details stay on the practice’s hosted payment page.",
+    "where": "Booking page, privacy page, terms",
+    "test": "npm run test:e2e -- --grep @claim:card-data-excluded",
+    "sandbox": "A fresh public booking page is inspected for the absence of card fields; the captured booking request is asserted to contain no card data before navigation to the configured hosted payment origin."
+  },
+  {
+    "id": "delivery-connection-test",
+    "claim": "A practice can send a delivery connection test without client data.",
+    "where": "Recovery queue and setup help",
+    "test": "cargo test --manifest-path backend/Cargo.toml delivery_connection_test_verifies_the_provider_without_client_data",
+    "sandbox": "An isolated local provider receives a connection-test payload with no recipient or client data, while the practice database remains free of new booking attempts."
+  },
+  {
     "id": "practice-plan-price",
-    "claim": "The $29 per month practice price and current checkout state are shown plainly.",
+    "claim": "The $29 per month practice price and official Sociobot checkout link are shown plainly.",
     "where": "Landing practice plan",
     "test": "npm run test:e2e -- --grep @claim:practice-plan-price",
-    "sandbox": "A fresh landing page exposes the exact monthly price, the currently unavailable checkout state, and a working setup link."
+    "sandbox": "A fresh landing page exposes the exact monthly price, the official Sociobot checkout URL, and a working setup link."
   }
 ]

@@ -22,6 +22,9 @@ export async function loadPractice(token: string): Promise<Practice> {
 export async function recoverPracticeAttempt(token: string, id: string): Promise<void> {
   await responseJson(await fetch(`/api/v1/practice/attempts/${encodeURIComponent(id)}/recover`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }));
 }
+export async function testDeliveryConnection(token: string): Promise<void> {
+  await responseJson(await fetch("/api/v1/practice/delivery/test", { method: "POST", headers: { Authorization: `Bearer ${token}` } }));
+}
 export async function publicPractice(slug: string): Promise<PublicPractice> { return responseJson(await fetch(`/api/v1/public/${encodeURIComponent(slug)}`)); }
 export async function createBookingAttempt(slug: string, payload: Record<string, unknown>): Promise<{ attemptId: string; paymentUrl: string; status: string }> {
   return responseJson(await fetch(`/api/v1/public/${encodeURIComponent(slug)}/attempts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }));

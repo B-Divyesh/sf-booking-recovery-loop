@@ -119,6 +119,10 @@ pub(crate) fn app_router_with_key(
             post(routes::practice::recover),
         )
         .route(
+            "/practice/delivery/test",
+            post(routes::practice::test_delivery_connection),
+        )
+        .route(
             "/provider/{practice_id}/receipts",
             post(routes::practice::receipt),
         )

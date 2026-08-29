@@ -1,1 +1,1 @@
-Recover stopped paid bookings with consent records, automatic follow-ups, and delivery receipts.
+Recover unfinished paid-session bookings with consent, follow-ups, and delivery receipts.

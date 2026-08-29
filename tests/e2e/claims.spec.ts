@@ -135,11 +135,34 @@ test("@claim:sample-three-bookings opens one-click sample data", async ({ page }
   await expect(ticketFor(page, "Maya Patel")).toContainText("Needs a follow-up");
 });
 
-test("@claim:practice-plan-price shows the priced plan and its current checkout state", async ({ page }) => {
+test("@claim:practice-plan-price shows the priced plan and official checkout link", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("Recovery Loop Practice is $29 per month for one practice with one to five practitioners.")).toBeVisible();
-  await expect(page.getByText("Subscription checkout is not available yet. You can set up a practice workspace now.")).toBeVisible();
+  await expect(page.getByText("Recovery Loop Practice is $29 per month for one practice.")).toBeVisible();
+  await expect(page.getByRole("link", { name: /Open \$29 monthly checkout/ })).toHaveAttribute("href", "https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout");
   await expect(page.getByRole("link", { name: "Set up your practice" }).last()).toHaveAttribute("href", "/start");
+});
+
+test("@claim:card-data-excluded has no card fields before hosted payment", async ({ page, request }) => {
+  const slug = `claim-card-data-${Date.now()}`;
+  const created = await request.post("/api/v1/practices", { headers: { "X-Forwarded-For": "203.0.113.171" }, data: {
+    name: "North Star Coaching", publicSlug: slug, timezone: "Europe/London", serviceName: "Focus session",
+    durationMinutes: 45, depositCents: 3500, currency: "GBP", paymentUrl: "https://example.com/hosted-payment", deliveryWebhookUrl: ""
+  }});
+  expect(created.status()).toBe(201);
+  let submitted: Record<string, unknown> | null = null;
+  page.on("request", (request) => {
+    if (request.url().includes(`/api/v1/public/${slug}/attempts`)) submitted = request.postDataJSON() as Record<string, unknown>;
+  });
+  await page.route("https://example.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<title>Hosted payment</title><h1>Hosted payment</h1>" }));
+  await page.goto(`/b/${slug}`);
+  await expect(page.locator('input[name*="card" i], input[autocomplete^="cc-"]')).toHaveCount(0);
+  await page.getByLabel("Your name").fill("Taylor Reed");
+  await page.getByLabel("Email address").fill("taylor@example.test");
+  await page.getByLabel("I give email consent for this booking").check();
+  await page.getByRole("button", { name: "Save booking and open payment" }).click();
+  await expect(page).toHaveURL("https://example.com/hosted-payment");
+  expect(submitted).not.toBeNull();
+  expect(Object.keys(submitted ?? {}).some((key) => /card|pan|cvc|cvv|expiry/i.test(key))).toBe(false);
 });
 
 test("@claim:practice-publish creates a private workspace and public page", async ({ page }) => {

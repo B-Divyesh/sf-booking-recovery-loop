@@ -6,18 +6,19 @@ receipts. It is for solo coaches, tutors, and consultants.
 Try the isolated sample at
 `https://booking-recovery-loop.sociobot.in/?demo=1`.
 
-## Use it
+## How booking recovery works
 
 1. Create a practice at `/start` and publish its `/b/<slug>` booking page.
 2. A client records email or SMS consent before hosted payment opens.
-3. The service queues an abandoned-booking recovery after 15 minutes.
-4. A verified payment event queues a session reminder.
+3. The service schedules a consented recovery message 15 minutes after an unpaid booking.
+4. After the payment provider confirms the deposit, the service schedules one session reminder.
 5. Delivery receipts appear in the practice queue. A bounced email can use one
    permitted SMS fallback.
 6. Export or delete practice data from `/app/settings/data`.
 
-Recovery Loop Practice is $29/month for one practice with one to five people.
-Checkout is currently unavailable.
+Recovery Loop Practice is $29/month for one practice. Open the official
+[Sociobot checkout](https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout)
+after setup.
 
 The demo has separate sample storage. It sends no real messages or payments.
 Every product promise above is listed with its executable evidence in

@@ -5,7 +5,7 @@ No item contains a banned marketing word.
 
 | Words | Landing copy | Result |
 | ---: | --- | --- |
-| 6 | Recover paid sessions before they disappear | Pass |
+| 4 | Recover unfinished paid-session bookings | Pass |
 | 14 | For solo coaches, tutors, and consultants who need to act when a paid booking stops. | Pass |
 | 5 | Try it with sample data | Pass |
 | 10 | See three fictional bookings, then reset the sample at any time. | Pass |
@@ -27,8 +27,10 @@ No item contains a banned marketing word.
 | 12 | It is not a CRM, a marketplace, or a tool for bulk messages. | Pass |
 | 5 | Read how booking data is handled | Pass |
 | 4 | Create a practice workspace | Pass |
-| 13 | Recovery Loop Practice is $29 per month for one practice with one to five practitioners. | Pass |
+| 10 | Recovery Loop Practice is $29 per month for one practice. | Pass |
 | 13 | Publish one session page, record email or SMS consent, and review delivery receipts. | Pass |
+| 13 | Set up your practice first, then buy the monthly plan through Sociobot checkout. | Pass |
+| 6 | Open $29 monthly checkout | Pass; external destination is named in the label. |
 | 4 | Set up your practice | Pass |
 
 Read-aloud result: the first breath states the job, audience, and sample action.

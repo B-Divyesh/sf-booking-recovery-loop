@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }, testInfo) => {
 });
 
 const routes = [
-  ["/", "Booking Recovery Loop — recover paid sessions"],
+  ["/", "Booking Recovery Loop — recover unfinished bookings"],
   ["/demo", "Demo — Booking Recovery Loop"],
   ["/start", "Start a practice — Booking Recovery Loop"],
   ["/app", "Recovery queue — Booking Recovery Loop"],

@@ -9,9 +9,9 @@ export interface PageMeta {
 
 const pages: Readonly<Record<SiteRoute, PageMeta>> = {
   home: {
-    title: "Booking Recovery Loop — recover paid sessions",
+    title: "Booking Recovery Loop — recover unfinished bookings",
     description: "Recover stopped paid bookings with recorded consent, hosted payment handoff, and provider delivery receipts.",
-    heading: "Recover paid sessions before they disappear",
+    heading: "Recover unfinished paid-session bookings",
     canonicalPath: "/"
   },
   demo: {

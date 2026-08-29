@@ -316,6 +316,46 @@ pub(crate) async fn recover(
     ))
 }
 
+/// Verifies a practice's configured delivery connection without sending client
+/// data or changing a booking. The owner can make this check during setup and
+/// again after a provider changes its endpoint.
+pub(crate) async fn test_delivery_connection(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let practice = practice_row_by_token(&state, bearer(&headers)?).await?;
+    if practice.delivery_webhook_url.is_empty() {
+        return Err(ApiError::conflict(
+            "delivery_not_connected",
+            "Add a delivery connection URL before sending a test message.",
+        ));
+    }
+    let response = state
+        .http
+        .post(&practice.delivery_webhook_url)
+        .json(&json!({
+            "type": "connection_test",
+            "practice": practice.name,
+            "message": "Booking Recovery Loop delivery connection test",
+            "containsClientData": false
+        }))
+        .send()
+        .await
+        .map_err(|_| {
+            ApiError::bad_gateway(
+                "delivery_unavailable",
+                "The delivery service did not answer the test. Check its URL and try again.",
+            )
+        })?;
+    if !response.status().is_success() {
+        return Err(ApiError::bad_gateway(
+            "delivery_rejected",
+            "The delivery service rejected the test. Check its URL and try again.",
+        ));
+    }
+    Ok(Json(json!({"status": "accepted", "clientDataSent": false})))
+}
+
 /// Runs due work from the database rather than from an in-memory timer. It is
 /// intentionally public to the service loop and tests; jobs remain queued
 /// across a container restart and are claimed atomically before delivery.
@@ -898,7 +938,9 @@ mod tests {
     use axum::{
         body::Body,
         http::{Request, StatusCode},
+        Json,
     };
+    use chrono::Utc;
     use http_body_util::BodyExt;
     use serde_json::{json, Value};
     use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
@@ -911,6 +953,7 @@ mod tests {
     };
     use tokio::sync::Mutex;
     use tower::ServiceExt;
+    use uuid::Uuid;
 
     use crate::{app_router, migrations, AppState};
 
@@ -1046,6 +1089,149 @@ mod tests {
                 .unwrap();
         assert_eq!(sent, "sent");
         assert_eq!(stopped_status, "stopped");
+    }
+
+    #[tokio::test]
+    async fn automatic_recovery_is_scheduled_exactly_15_minutes_after_unpaid_booking() {
+        let (app, pool) = test_app().await;
+        create_owner(&app, "recovery-delay-test").await;
+        let before = Utc::now().timestamp();
+        let (status, attempt) = send(
+            &app,
+            "POST",
+            "/api/v1/public/recovery-delay-test/attempts",
+            json!({
+                "clientName":"Maya Patel", "email":"maya@example.test", "phone":null,
+                "scheduledFor":"2030-05-10T12:00:00Z", "emailConsent":true, "smsConsent":false
+            }),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{attempt}");
+        let due_at: i64 = sqlx::query_scalar(
+            "SELECT due_at FROM practice_scheduled_jobs WHERE attempt_id = ? AND kind = 'abandoned_recovery'",
+        )
+        .bind(attempt["attemptId"].as_str().unwrap())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let after = Utc::now().timestamp();
+        assert!(
+            due_at >= before + 15 * 60 && due_at <= after + 15 * 60,
+            "recovery due time must be exactly 15 minutes after the unpaid booking"
+        );
+    }
+
+    #[tokio::test]
+    async fn delivery_connection_test_verifies_the_provider_without_client_data() {
+        let received = Arc::new(tokio::sync::Mutex::new(None::<Value>));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let captured = received.clone();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                axum::Router::new().route(
+                    "/send",
+                    axum::routing::post(move |Json(body): Json<Value>| {
+                        let captured = captured.clone();
+                        async move {
+                            *captured.lock().await = Some(body);
+                            StatusCode::ACCEPTED
+                        }
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let (app, pool) = test_app().await;
+        let owner = create_owner(&app, "delivery-check-test").await;
+        let token = owner["accessToken"].as_str().unwrap();
+        sqlx::query("UPDATE practices SET delivery_webhook_url = ? WHERE id = ?")
+            .bind(format!("http://{address}/send"))
+            .bind(owner["practice"]["id"].as_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (status, response) = send(
+            &app,
+            "POST",
+            "/api/v1/practice/delivery/test",
+            json!({}),
+            Some(token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{response}");
+        assert_eq!(response["status"], "accepted");
+        let body = received
+            .lock()
+            .await
+            .clone()
+            .expect("provider should get a test");
+        assert_eq!(body["type"], "connection_test");
+        assert_eq!(body["containsClientData"], false);
+        assert_eq!(body.get("to"), None);
+        let attempts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM practice_attempts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(attempts, 0, "a connection test must not create a booking");
+    }
+
+    #[tokio::test]
+    async fn practice_data_inventory_matches_the_exported_record_types() {
+        let (app, pool) = test_app().await;
+        let owner = create_owner(&app, "data-inventory-test").await;
+        let token = owner["accessToken"].as_str().unwrap();
+        let (_, attempt) = send(
+            &app,
+            "POST",
+            "/api/v1/public/data-inventory-test/attempts",
+            json!({
+                "clientName":"Maya Patel", "email":"maya@example.test", "phone":null,
+                "scheduledFor":"2030-05-10T12:00:00Z", "emailConsent":true, "smsConsent":false
+            }),
+            None,
+        )
+        .await;
+        let attempt_id = attempt["attemptId"].as_str().unwrap();
+        sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES (?, ?, ?, 'email', 'accepted', 'Accepted for delivery', ?, ?)")
+            .bind(Uuid::now_v7().to_string()).bind(owner["practice"]["id"].as_str().unwrap()).bind(attempt_id).bind(Uuid::now_v7().to_string()).bind(Utc::now().timestamp()).execute(&pool).await.unwrap();
+        let (status, exported) = send(
+            &app,
+            "GET",
+            "/api/v1/practice/export",
+            json!({}),
+            Some(token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        for key in [
+            "name",
+            "serviceName",
+            "paymentUrl",
+            "deliveryWebhookUrl",
+            "attempts",
+        ] {
+            assert!(
+                exported.get(key).is_some(),
+                "export must include practice settings: {key}"
+            );
+        }
+        let record = &exported["attempts"][0];
+        assert!(
+            record.get("consentWording").is_some(),
+            "export must include consent records"
+        );
+        assert!(
+            record.get("scheduledJobs").is_some(),
+            "export must include scheduled messages"
+        );
+        assert!(
+            record.get("events").is_some(),
+            "export must include delivery receipts"
+        );
     }
 
     #[tokio::test]

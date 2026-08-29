@@ -22,6 +22,7 @@ import {
   PRACTICE_TOKEN_KEY,
   publicPractice,
   recoverPracticeAttempt,
+  testDeliveryConnection,
   type Practice,
   type PublicPractice,
   type ScheduledJob
@@ -49,7 +50,7 @@ function homeContent(): string {
   return `
     <section class="hero" aria-describedby="hero-summary">
       <div class="hero-copy">
-        <h1 tabindex="-1">Recover paid sessions before they disappear</h1>
+        <h1 tabindex="-1">Recover unfinished paid-session bookings</h1>
         <p id="hero-summary" class="lede">For solo coaches, tutors, and consultants who need to act when a paid booking stops.</p>
         <div class="hero-action">
           <a class="button button-primary" href="/demo">Try it with sample data</a>
@@ -127,10 +128,10 @@ function homeContent(): string {
         <h2 id="plan-title">Create a practice workspace</h2>
       </div>
       <div class="plan-copy">
-        <p>Recovery Loop Practice is $29 per month for one practice with one to five practitioners.</p>
+        <p>Recovery Loop Practice is $29 per month for one practice.</p>
         <p>Publish one session page, record email or SMS consent, and review delivery receipts.</p>
-        <p class="action-note">Subscription checkout is not available yet. You can set up a practice workspace now.</p>
-        <div class="button-row"><a class="button button-primary" href="/start">Set up your practice</a></div>
+        <p class="action-note">Set up your practice first, then buy the monthly plan through Sociobot checkout.</p>
+        <div class="button-row"><a class="button button-primary" href="/start">Set up your practice</a><a class="button button-secondary" href="https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout">Open $29 monthly checkout <span class="sr-only">(opens Sociobot checkout)</span></a></div>
       </div>
     </section>`;
 }
@@ -269,7 +270,7 @@ function startContent(): string {
   return `<article class="setup-page">
     <p class="eyebrow">Practice setup</p>
     <h1 tabindex="-1">Set up your booking recovery page</h1>
-    <p class="policy-lede">Create one paid-session page. Recovery starts automatically 15 minutes after an unpaid booking. A private access key is saved in this browser.</p>
+    <p class="policy-lede">Create one paid-session page. The service schedules a consented recovery message 15 minutes after an unpaid booking. A private access key is saved in this browser.</p>
     ${practiceNotice ? `<p class="inline-notice" role="status" aria-live="polite">${escapeHtml(practiceNotice)}</p>` : ""}
     <form class="setup-form" data-form="create-practice">
       <fieldset><legend>Practice</legend>
@@ -285,11 +286,11 @@ function startContent(): string {
         <p id="deposit-help" class="field-help">For £35, enter 3500.</p>
         <label>Currency<input name="currency" required minlength="3" maxlength="3" value="GBP"></label>
         <label>Hosted deposit URL<input name="paymentUrl" type="url" inputmode="url" required placeholder="https://payments.your-practice.example/session" aria-describedby="payment-help"></label>
-        <p id="payment-help" class="field-help">Use the hosted deposit page your practice already uses. Card details never enter this product.</p>
+        <p id="payment-help" class="field-help">Paste the secure payment page you already use. The booking form has no card fields.</p>
       </fieldset>
-      <fieldset><legend>Delivery receipts</legend>
+      <fieldset><legend>Delivery connection</legend>
         <label>Delivery connection URL<input name="deliveryWebhookUrl" type="url" inputmode="url" required placeholder="https://messages.your-practice.example/send" aria-describedby="delivery-help"></label>
-        <p id="delivery-help" class="field-help">This receives automatic recovery and reminder requests, then reports delivery receipts to the callback shown after setup.</p>
+        <p id="delivery-help" class="field-help">Paste your delivery provider’s send URL. After setup, send a test message before relying on automatic recovery.</p>
       </fieldset>
       <button class="button button-primary" type="submit">Create practice workspace</button>
     </form>
@@ -308,7 +309,7 @@ function appContent(): string {
   }
   if (!practice) return statePage("Review bookings that need action", "Loading your practice workspace.");
   return `<section class="practice-heading"><div><p class="eyebrow">${escapeHtml(practice.name)}</p><h1 tabindex="-1">Review bookings that need action</h1><p class="lede">Recovery and reminders run automatically when their due time arrives. Email or SMS consent decides the channel.</p></div>
-    <div class="button-row"><a class="button button-secondary" href="/b/${escapeHtml(practice.publicSlug)}">Open public booking page</a><a class="button button-secondary" href="/app/settings/data">Manage data</a></div></section>
+    <div class="button-row"><button class="button button-secondary" type="button" data-action="test-delivery">Send delivery test</button><a class="button button-secondary" href="/b/${escapeHtml(practice.publicSlug)}">Open public booking page</a><a class="button button-secondary" href="/app/settings/data">Manage data</a></div></section>
     ${practiceNotice ? `<p class="inline-notice" role="status" aria-live="polite">${escapeHtml(practiceNotice)}</p>` : ""}
     <section class="practice-board" aria-labelledby="attempts-title"><h2 id="attempts-title">Booking attempts</h2>
       ${practice.attempts.length === 0 ? `<div class="state-panel"><div><h3>No bookings need attention</h3><p>New bookings from your public page will appear here.</p></div></div>` : `<ul class="practice-attempts">${practice.attempts.map((attempt) => `<li><article><div class="attempt-top"><h3>${escapeHtml(attempt.clientName)}</h3><span class="status ${attempt.state === "recovered" ? "status-good" : "status-attention"}">${escapeHtml(attempt.state.replaceAll("_", " "))}</span></div><p>${formatDateTime(attempt.scheduledFor)}</p><p>Email consent: <strong>${attempt.emailConsent ? "Recorded" : "Missing"}</strong> · SMS consent: <strong>${attempt.smsConsent ? "Recorded" : "Missing"}</strong></p><p class="evidence-time">Consent recorded ${formatDateTime(attempt.consentRecordedAt)}</p>${scheduledJobs(attempt.scheduledJobs)}${attempt.events.length ? `<ol class="receipt-timeline">${attempt.events.map((event) => `<li><span class="receipt-node" aria-hidden="true">✓</span><div><strong>${titleCase(event.status)} · ${escapeHtml(event.channel)}</strong><time datetime="${escapeHtml(event.occurredAt)}">${formatDateTime(event.occurredAt)}</time><p>${escapeHtml(event.detail)}</p></div></li>`).join("")}</ol>` : `<p>No delivery receipt yet.</p>`}${attempt.scheduledJobs.some((job) => job.status === "failed") ? `<button class="button button-secondary" type="button" data-action="recover-practice" data-attempt-id="${escapeHtml(attempt.id)}">Retry delivery now</button>` : ""}</article></li>`).join("")}</ul>`}
@@ -325,7 +326,7 @@ function bookingContent(): string {
     ${practiceNotice ? `<p class="inline-notice" role="status">${escapeHtml(practiceNotice)}</p>` : ""}
     <form class="booking-form" data-form="create-booking"><label>Your name<input name="clientName" required minlength="2" maxlength="100" autocomplete="name"></label><label>Email address<input name="email" type="email" autocomplete="email"></label><label>Mobile number<input name="phone" type="tel" autocomplete="tel"></label><label>Session time<input name="scheduledFor" type="datetime-local" required value="${tomorrow.toISOString().slice(0,16)}" aria-describedby="slot-help"></label><p id="slot-help" class="field-help">A time already held by another active booking cannot be selected.</p>
       <fieldset><legend>Contact consent</legend><p>${escapeHtml(publicPage.consentWording)}</p><label class="check-label"><input name="emailConsent" type="checkbox"> I give email consent for this booking</label><label class="check-label"><input name="smsConsent" type="checkbox"> I give SMS consent for this booking</label></fieldset>
-      <button class="button button-primary" type="submit">Save booking and open payment</button><p class="action-note">You will leave this site for the practice’s hosted payment page.</p></form></article>`;
+      <button class="button button-primary" type="submit">Save booking and open payment</button><p class="action-note">This form records no card number, card expiry, or security code. You will leave this site for the practice’s hosted payment page.</p></form></article>`;
 }
 
 function completeContent(): string {
@@ -346,11 +347,11 @@ function privacyContent(): string {
     <article class="policy-page">
       <p class="eyebrow">Privacy</p>
       <h1 tabindex="-1">Control your booking data</h1>
-      <p class="policy-lede">The demo stays separate. A real practice stores only the booking and consent records needed for recovery.</p>
+      <p class="policy-lede">The demo stays separate. A real workspace stores practice settings, bookings, consent records, scheduled messages, and delivery receipts.</p>
       <section><h2>What the demo stores</h2><p>Your browser keeps one random demo token under <code>demo:workspace-token</code>.</p><p>The server keeps the matching sample workspace for up to 24 hours.</p></section>
       <section><h2>What the demo does not contact</h2><p>Demo actions do not call payment, messaging, sign-in, billing, or AI services.</p><p>The simulated receipt comes from this product’s own server.</p></section>
       <section><h2>How to remove the sample</h2><p>Reset demo makes the current workspace inaccessible and creates a fresh one.</p><p>Start for real removes the browser token. The inaccessible server copy expires automatically.</p></section>
-      <section><h2>What a practice stores</h2><p>The service stores practice settings, booking attempts, email or SMS consent, and delivery receipts.</p><p>Client names, email addresses, and phone numbers are encrypted before database storage.</p><p>Payment card details stay on the practice’s hosted payment page and never enter this product.</p></section>
+      <section><h2>What a practice stores</h2><p>The service stores practice settings, booking attempts, email or SMS consent, scheduled messages, and delivery receipts.</p><p>Client names, email addresses, and phone numbers are encrypted before database storage.</p><p>The booking form has no card fields. Payment card details stay on the practice’s hosted payment page.</p></section>
       <section><h2>Export and deletion</h2><p>A practice owner can export its records or delete the full practice from the data controls page.</p></section>
       <div class="button-row"><a class="button button-primary" href="/demo">Open the sample workspace</a><a class="button button-secondary" href="/app/settings/data">Open data controls</a></div>
     </article>`;
@@ -363,7 +364,7 @@ function termsContent(): string {
       <h1 tabindex="-1">Terms for using Booking Recovery Loop</h1>
       <p class="policy-lede">Use the demo with its fictional records. Use a real workspace only for bookings you are allowed to manage.</p>
       <section><h2>Use the sample safely</h2><p>Use only the fictional records already provided. Do not enter client contact details.</p></section>
-      <section><h2>Hosted payments</h2><p>Practices provide their own hosted payment link. This product does not collect card details or confirm payment from a return URL.</p></section>
+      <section><h2>Hosted payments</h2><p>Practices provide their own hosted payment link. The booking form has no card fields and does not confirm payment from a return URL.</p></section>
       <section><h2>Messages and consent</h2><p>Automatic recovery and reminders use only recorded email or SMS consent.</p><p>A delivery receipt reports provider status. It is not a guarantee that a person read the message.</p></section>
       <section><h2>Availability</h2><p>The sample may reset during maintenance. Use Reset demo whenever its state is unclear.</p></section>
       <section><h2>Fair use</h2><p>Automated abuse may be rate limited. A limited request returns a retry time.</p></section>
@@ -645,6 +646,16 @@ document.addEventListener("click", (event) => {
     if (attemptId && token) void (async () => {
       practiceNotice = "Checking consent and asking the delivery service to send."; render();
       try { await recoverPracticeAttempt(token, attemptId); practiceNotice = "The delivery service accepted the recovery message."; practice = await loadPractice(token); }
+      catch (error) { practiceNotice = messageFor(error); }
+      render();
+    })();
+    return;
+  }
+  if (action === "test-delivery") {
+    const token = localStorage.getItem(PRACTICE_TOKEN_KEY);
+    if (token) void (async () => {
+      practiceNotice = "Sending a delivery connection test without client data."; render();
+      try { await testDeliveryConnection(token); practiceNotice = "The delivery service accepted the connection test. No client data was sent."; }
       catch (error) { practiceNotice = messageFor(error); }
       render();
     })();
