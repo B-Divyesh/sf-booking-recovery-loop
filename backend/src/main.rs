@@ -32,6 +32,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 const GENERAL_BURST: u32 = 40;
 const WRITE_BURST: u32 = 12;
 const WRITE_REPLENISH_SECONDS: u64 = 60;
+const READ_REPLENISH_SECONDS: u64 = 60;
 const SHARED_API_REQUESTS_PER_SECOND: i32 = 40;
 const SHARED_WRITE_REQUESTS_PER_MINUTE: i32 = 12;
 const READ_RATE_RESERVATION: i32 = 10;
@@ -353,7 +354,10 @@ async fn shared_api_rate_limit(
     let is_write = request.method() == Method::POST;
     // Writes deliberately use a minute bucket. The value is authoritative in
     // PostgreSQL, so changing HTTP connections or replicas cannot multiply a
-    // 12-write allowance. Reads retain the short 40-request burst window.
+    // 12-write allowance. Reads use the same minute-sized shared burst
+    // window: the public container has a high-latency pooled PostgreSQL
+    // boundary, so a one-second fixed bucket could refill while a single
+    // 160-connection burst was still draining through that boundary.
     let (window_start, key, limit, retry_after) = if is_write {
         (
             now - now.rem_euclid(WRITE_REPLENISH_SECONDS as i64),
@@ -363,10 +367,10 @@ async fn shared_api_rate_limit(
         )
     } else {
         (
-            now,
+            now - now.rem_euclid(READ_REPLENISH_SECONDS as i64),
             format!("read:{client}"),
             SHARED_API_REQUESTS_PER_SECOND,
-            "1".to_owned(),
+            READ_REPLENISH_SECONDS.to_string(),
         )
     };
     let local_key = format!("{key}:{window_start}");

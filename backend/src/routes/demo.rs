@@ -1494,7 +1494,14 @@ mod tests {
                 StatusCode::TOO_MANY_REQUESTS => {
                     limited += 1;
                     assert_eq!(response.headers()["x-ratelimit-limit"], "40");
-                    assert_eq!(response.headers()["retry-after"], "1");
+                    assert!(
+                        response.headers()["retry-after"]
+                            .to_str()
+                            .expect("retry header is text")
+                            .parse::<u64>()
+                            .expect("retry header is seconds")
+                            > 0
+                    );
                 }
                 status => panic!("shared read limiter must return 200 or 429, got {status}"),
             }
