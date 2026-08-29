@@ -34,7 +34,7 @@ const WRITE_BURST: u32 = 12;
 const WRITE_REPLENISH_SECONDS: u64 = 60;
 const SHARED_API_REQUESTS_PER_SECOND: i32 = 40;
 const SHARED_WRITE_REQUESTS_PER_MINUTE: i32 = 12;
-const READ_RATE_RESERVATION: i32 = 4;
+const READ_RATE_RESERVATION: i32 = 10;
 
 #[derive(Clone, Copy)]
 pub(crate) struct LocalRateWindow {
@@ -371,11 +371,11 @@ async fn shared_api_rate_limit(
     };
     let local_key = format!("{key}:{window_start}");
     let reservation = if is_write { 1 } else { READ_RATE_RESERVATION };
-    // A small local reservation turns a large burst into at most ten shared
-    // database updates rather than one update per request. The database still
-    // grants every block atomically, so independent replicas cannot exceed
-    // the global 40-read/12-write allowance. Holding this short per-process
-    // lock covers only a quota reservation, never application work.
+    // A bounded local reservation turns a large burst into a handful of
+    // shared database updates rather than one update per request. The
+    // database still grants every block atomically, so independent replicas
+    // cannot exceed the global 40-read/12-write allowance. Holding this short
+    // per-process lock covers only a quota reservation, never application work.
     let allowed = {
         let mut local_windows = state.rate_windows.lock().await;
         local_windows.retain(|_, value| value.window_start >= now - 2 * 60);
@@ -386,19 +386,25 @@ async fn shared_api_rate_limit(
             } else if window.exhausted {
                 Ok(false)
             } else {
-                reserve_rate_block(&state.pool, &key, window_start, reservation, limit)
-                    .await
-                    .map(|granted| {
-                        *window = LocalRateWindow {
-                            window_start,
-                            remaining: granted.saturating_sub(1),
-                            exhausted: granted == 0,
-                        };
-                        granted > 0
-                    })
+                reserve_rate_block_with_remainder(
+                    &state.pool,
+                    &key,
+                    window_start,
+                    reservation,
+                    limit,
+                )
+                .await
+                .map(|granted| {
+                    *window = LocalRateWindow {
+                        window_start,
+                        remaining: granted.saturating_sub(1),
+                        exhausted: granted == 0,
+                    };
+                    granted > 0
+                })
             }
         } else {
-            reserve_rate_block(&state.pool, &key, window_start, reservation, limit)
+            reserve_rate_block_with_remainder(&state.pool, &key, window_start, reservation, limit)
                 .await
                 .map(|granted| {
                     local_windows.insert(
@@ -470,6 +476,25 @@ async fn reserve_rate_block(
     .fetch_optional(pool)
     .await
     .map(|hits| hits.map(|_| reservation).unwrap_or_default())
+}
+
+async fn reserve_rate_block_with_remainder(
+    pool: &AnyPool,
+    key: &str,
+    window_start: i64,
+    reservation: i32,
+    limit: i32,
+) -> Result<i32, sqlx::Error> {
+    let granted = reserve_rate_block(pool, key, window_start, reservation, limit).await?;
+    // Four test/service replicas can reserve ten reads each. A smaller final
+    // remainder remains available if deployment topology or traffic order
+    // leaves fewer than ten slots. Writes already reserve one and skip this
+    // path.
+    if granted == 0 && reservation > 1 {
+        reserve_rate_block(pool, key, window_start, 1, limit).await
+    } else {
+        Ok(granted)
+    }
 }
 
 fn api_limit_error(error: GovernorError) -> Response {
