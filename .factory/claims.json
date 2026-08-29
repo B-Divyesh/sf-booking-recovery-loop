@@ -110,5 +110,26 @@
     "where": "Public booking page and README",
     "test": "cargo test --manifest-path backend/Cargo.toml occupied_slot_cannot_be_double_booked",
     "sandbox": "Two clients submit the same future time for one practice; the first succeeds, the second receives slot_unavailable, and one database record remains."
+  },
+  {
+    "id": "automatic-recovery",
+    "claim": "An unpaid booking gets a durable automatic recovery, and withdrawn consent stops it.",
+    "where": "Practice setup and recovery queue",
+    "test": "cargo test --manifest-path backend/Cargo.toml automatic_recovery_is_durable_consent_gated_and_idempotent",
+    "sandbox": "An isolated provider receives one accelerated due recovery. A second due job with consent withdrawn is marked stopped, and a second scheduler run creates no duplicate send."
+  },
+  {
+    "id": "automatic-reminder",
+    "claim": "A verified deposit queues one durable session reminder.",
+    "where": "README product workflow and recovery queue",
+    "test": "cargo test --manifest-path backend/Cargo.toml hosted_payment_requires_verified_callback_and_is_idempotent",
+    "sandbox": "An isolated payment callback accepts one authenticated paid event and asserts the database contains exactly one queued session-reminder job."
+  },
+  {
+    "id": "practice-plan-price",
+    "claim": "The practice plan costs $29 per month and opens the Sociobot checkout.",
+    "where": "Landing practice plan",
+    "test": "npm run test:e2e -- --grep @claim:practice-plan-price",
+    "sandbox": "A fresh landing page exposes the exact monthly price and a checkout link for this product at the Sociobot billing API."
   }
 ]

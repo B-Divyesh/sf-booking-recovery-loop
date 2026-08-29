@@ -317,10 +317,33 @@ async fn main() {
         .expect("the configured HTTP port must be bindable");
     info!(%address, "Booking Recovery Loop API is listening");
 
+    let app = app_router_with_key(pool.clone(), build_sha, static_dir, encryption_key);
+    let scheduler_state = AppState {
+        build_sha: Arc::from(env!("BUILD_SHA")),
+        pool,
+        demo_lock: Arc::new(Mutex::new(())),
+        encryption_key: Arc::new(encryption_key),
+        http: reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .expect("HTTP client configuration is valid"),
+        static_dir: Arc::new(PathBuf::new()),
+    };
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            if routes::practice::run_due_jobs(&scheduler_state, chrono::Utc::now().timestamp())
+                .await
+                .is_err()
+            {
+                tracing::warn!("scheduled recovery loop could not process due jobs");
+            }
+        }
+    });
     axum::serve(
         listener,
-        app_router_with_key(pool, build_sha, static_dir, encryption_key)
-            .into_make_service_with_connect_info::<SocketAddr>(),
+        app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
     .await

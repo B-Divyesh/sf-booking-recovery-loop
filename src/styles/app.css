@@ -813,6 +813,19 @@ p {
   font-variant-numeric: tabular-nums;
 }
 
+.schedule-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.schedule-list li { display: grid; gap: var(--space-1); color: var(--color-mist); }
+.schedule-list strong { color: var(--color-paper); }
+.schedule-list span { font-variant-numeric: tabular-nums; font-size: .875rem; }
+.schedule-list p { margin: 0; color: var(--color-rose); }
+
 .permission-copy {
   color: var(--color-mint);
 }

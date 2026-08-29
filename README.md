@@ -1,29 +1,25 @@
 # Booking Recovery Loop
 
-Booking Recovery Loop helps solo coaches, tutors, and consultants act when a
-paid booking stops. A practice can publish one session page, record channel
-consent, open hosted payment, and review provider receipts.
+Recover a stopped paid booking with recorded email or SMS consent and delivery
+receipts. It is for solo coaches, tutors, and consultants.
 
 Try the isolated sample at
-`https://booking-recovery-loop.sociobot.in/?demo=1`. It opens three fictional
-bookings without an account or payment. Demo actions stay on the product origin
-and send no real message.
+`https://booking-recovery-loop.sociobot.in/?demo=1`.
 
-## Product workflow
+## Use it
 
-1. Create a private practice workspace at `/start`.
-2. Publish the generated `/b/<slug>` session page.
+1. Start the $29/month practice plan from the landing page.
+2. Create a practice at `/start` and publish its `/b/<slug>` booking page.
 3. A client records email or SMS consent before hosted payment opens.
-   A time already held by another active booking is rejected.
-4. The payment provider confirms a deposit through the authenticated callback.
-5. A connected delivery service returns accepted, delivered, bounced, or failed receipts.
-6. One permitted SMS fallback can follow an email bounce.
-7. Export or delete the complete practice from `/app/settings/data`.
+4. The service queues an abandoned-booking recovery after 15 minutes.
+5. A verified payment event queues a session reminder.
+6. Delivery receipts appear in the practice queue. A bounced email can use one
+   permitted SMS fallback.
+7. Export or delete practice data from `/app/settings/data`.
 
-Client contact fields are encrypted before database storage. Owner tokens scope
-every private read and write to one practice. The demo uses a separate token,
-schema path, and fictional seed. Each statement above has one named test in
-[.factory/claims.json](.factory/claims.json).
+The demo has separate sample storage. It sends no real messages or payments.
+Every product promise above is listed with its executable evidence in
+[`.factory/claims.json`](.factory/claims.json).
 
 ## Run locally
 
@@ -35,9 +31,7 @@ npm run build
 cargo run --manifest-path backend/Cargo.toml
 ```
 
-Open `http://127.0.0.1:8080`. Optional settings are `PORT`, `DATABASE_URL`,
-`STATIC_DIR`, and `CONTACT_KEY_FILE`. With no settings, the container creates
-its SQLite database and encryption key under its writable data directory.
+Open `http://127.0.0.1:8080`.
 
 ## Verify
 
@@ -50,20 +44,17 @@ npm run build
 npm run check:size
 ```
 
-Playwright starts the complete Rust and Vite build. It checks each browser
-claim plus keyboard, route, mobile, offline, privacy, and axe coverage.
-
-Build the production image with:
+## Deploy
 
 ```sh
 docker build -f Dockerfile --build-arg BUILD_SHA=local -t booking-recovery-loop .
 docker run --rm -p 8080:8080 booking-recovery-loop
 ```
 
-The factory deploys that non-root container on `PORT`. `/health` reports the
-build SHA. No secret is stored in this repository.
+Set `PORT` when you need a port other than 8080. Use `/health` for a health
+check.
 
 ## License
 
 [MIT](LICENSE). Fraunces and Atkinson Hyperlegible Next use the SIL Open Font
-License; their texts are in `public/fonts/`.
+License; their license texts are in `public/fonts/`.

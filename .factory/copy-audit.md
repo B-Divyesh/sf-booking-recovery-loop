@@ -15,7 +15,7 @@ No item contains a banned marketing word.
 | 10 | Ready to use your own booking? Set up your practice. | Pass |
 | 8 | One booking stopped. Email consent decides the next step. | Pass |
 | 3 | Sample recovery board | Pass |
-| 10 | Review a booking state, its contact consent, and each delivery receipt. | Pass |
+| 10 | Review a booking, its email consent, and each delivery receipt. | Pass |
 | 4 | How booking recovery works | Pass |
 | 4 | Find the stopped booking | Pass |
 | 9 | See the chosen session and where the client left. | Pass |
@@ -26,8 +26,10 @@ No item contains a banned marketing word.
 | 6 | It does not replace your calendar | Pass |
 | 12 | It is not a CRM, a marketplace, or a tool for bulk messages. | Pass |
 | 5 | Read how booking data is handled | Pass |
-| 5 | Create a practice workspace | Pass |
-| 10 | Publish one session page, capture channel consent, and review delivery receipts. | Pass |
+| 4 | Create a practice workspace | Pass |
+| 10 | $29 per month for one practice with one to five practitioners. | Pass |
+| 13 | Publish one session page, record email or SMS consent, and review delivery receipts. | Pass |
+| 3 | Start $29/month plan | Pass |
 | 4 | Set up your practice | Pass |
 
 Read-aloud result: the first breath states the job, audience, and sample action.

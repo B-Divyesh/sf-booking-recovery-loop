@@ -135,12 +135,23 @@ test("@claim:sample-three-bookings opens one-click sample data", async ({ page }
   await expect(ticketFor(page, "Maya Patel")).toContainText("Needs a follow-up");
 });
 
+test("@claim:practice-plan-price shows the priced Sociobot plan", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("$29 per month for one practice with one to five practitioners.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Start $29/month plan" })).toHaveAttribute(
+    "href",
+    "https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout"
+  );
+});
+
 test("@claim:practice-publish creates a private workspace and public page", async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
   const slug = `claim-practice-${Date.now()}`;
   await page.goto("/start");
   await page.getByLabel("Booking link").fill(slug);
+  await page.getByLabel("Hosted deposit URL").fill("https://payments.example.test/session");
+  await page.getByLabel("Delivery connection URL").fill("https://messages.example.test/send");
   await page.getByRole("button", { name: "Create practice workspace" }).click();
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByRole("heading", { name: "Review bookings that need action" })).toBeVisible();
@@ -166,7 +177,7 @@ test("@claim:booking-consent-record saves consent before hosted payment", async 
   await page.goto(`/b/${slug}`);
   await page.getByLabel("Your name").fill("Taylor Reed");
   await page.getByLabel("Email address").fill("taylor@example.test");
-  await page.getByLabel("Email me about this booking").check();
+  await page.getByLabel("I give email consent for this booking").check();
   await page.getByRole("button", { name: "Save booking and open payment" }).click();
   await expect(page).toHaveURL("https://example.com/hosted-payment");
   const practiceResponse = await request.get("/api/v1/practice", { headers: { Authorization: `Bearer ${owner.accessToken}`, "X-Forwarded-For": clientIp } });

@@ -117,6 +117,7 @@ struct AttemptView {
     consent_wording: String,
     consent_recorded_at: String,
     events: Vec<EventView>,
+    scheduled_jobs: Vec<ScheduledJobView>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -128,7 +129,16 @@ struct EventView {
     occurred_at: String,
 }
 
-#[derive(FromRow)]
+#[derive(Serialize, FromRow)]
+#[serde(rename_all = "camelCase")]
+struct ScheduledJobView {
+    kind: String,
+    due_at: String,
+    status: String,
+    last_error: Option<String>,
+}
+
+#[derive(Clone, FromRow)]
 struct PracticeRow {
     id: String,
     public_slug: String,
@@ -142,7 +152,7 @@ struct PracticeRow {
     delivery_webhook_url: String,
 }
 
-#[derive(FromRow)]
+#[derive(Clone, FromRow)]
 struct AttemptRow {
     id: String,
     client_name_encrypted: String,
@@ -266,6 +276,11 @@ pub(crate) async fn create_attempt(
     .execute(&state.pool)
     .await
     .map_err(|error| if error.to_string().contains("UNIQUE") { ApiError::conflict("slot_unavailable", "That time was just booked. Choose another future time.") } else { ApiError::internal() })?;
+    // The recovery deadline is durable. A restart cannot silently turn an
+    // abandoned booking back into a manual checklist item.
+    sqlx::query("INSERT INTO practice_scheduled_jobs (id, practice_id, attempt_id, kind, due_at, created_at) VALUES (?, ?, ?, 'abandoned_recovery', ?, ?)")
+        .bind(Uuid::now_v7().to_string()).bind(&practice.id).bind(&id)
+        .bind(now + 15 * 60).bind(now).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
     Ok((
         StatusCode::CREATED,
         Json(json!({
@@ -294,46 +309,108 @@ pub(crate) async fn recover(
     .await
     .map_err(|_| ApiError::internal())?
     .ok_or_else(ApiError::not_found)?;
-    let channel = if attempt.email_consent && attempt.email_encrypted.is_some() {
-        "email"
-    } else if attempt.sms_consent && attempt.phone_encrypted.is_some() {
-        "sms"
-    } else {
-        return Err(ApiError::conflict(
-            "consent_required",
-            "No permitted contact channel is recorded. This recovery stays stopped.",
-        ));
-    };
+    let channel = preferred_channel(&attempt)?;
+    let event_id = deliver_attempt(&state, &practice, &attempt, "manual recovery").await?;
+    Ok(Json(
+        json!({"status":"accepted", "channel": channel, "eventId": event_id}),
+    ))
+}
+
+/// Runs due work from the database rather than from an in-memory timer. It is
+/// intentionally public to the service loop and tests; jobs remain queued
+/// across a container restart and are claimed atomically before delivery.
+pub(crate) async fn run_due_jobs(state: &AppState, now: i64) -> Result<(), ApiError> {
+    let jobs: Vec<(String, String, String, String)> = sqlx::query_as(
+        "SELECT j.id, j.attempt_id, j.kind, j.practice_id FROM practice_scheduled_jobs j \
+         JOIN practices p ON p.id = j.practice_id WHERE j.status IN ('queued', 'failed') \
+         AND j.due_at <= ? AND p.deletion_requested_at IS NULL ORDER BY j.due_at LIMIT 32",
+    )
+    .bind(now)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|_| ApiError::internal())?;
+
+    for (job_id, attempt_id, kind, practice_id) in jobs {
+        let claimed = sqlx::query("UPDATE practice_scheduled_jobs SET status = 'processing', attempts = attempts + 1, last_error = NULL WHERE id = ? AND status IN ('queued', 'failed')")
+            .bind(&job_id).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
+        if claimed.rows_affected() != 1 {
+            continue;
+        }
+        let result = deliver_scheduled_job(state, &practice_id, &attempt_id, &kind).await;
+        match result {
+            Ok(()) => {
+                sqlx::query("UPDATE practice_scheduled_jobs SET status = 'sent', completed_at = ? WHERE id = ?")
+                    .bind(now).bind(&job_id).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
+            }
+            Err(error) if error.code == "consent_required" => {
+                sqlx::query("UPDATE practice_scheduled_jobs SET status = 'stopped', completed_at = ?, last_error = ? WHERE id = ?")
+                    .bind(now).bind(error.message).bind(&job_id).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
+            }
+            Err(error) => {
+                // A failed provider call is retried in five minutes. The
+                // error remains visible to the owner instead of disappearing.
+                sqlx::query("UPDATE practice_scheduled_jobs SET status = 'failed', due_at = ?, last_error = ? WHERE id = ?")
+                    .bind(now + 5 * 60).bind(error.message).bind(&job_id).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn deliver_scheduled_job(
+    state: &AppState,
+    practice_id: &str,
+    attempt_id: &str,
+    kind: &str,
+) -> Result<(), ApiError> {
+    let practice: PracticeRow = sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url FROM practices WHERE id = ? AND deletion_requested_at IS NULL")
+        .bind(practice_id).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?.ok_or_else(ApiError::not_found)?;
+    let attempt: AttemptRow = sqlx::query_as("SELECT id, client_name_encrypted, email_encrypted, phone_encrypted, scheduled_for, state, email_consent, sms_consent, consent_wording, consent_recorded_at FROM practice_attempts WHERE id = ? AND practice_id = ?")
+        .bind(attempt_id).bind(practice_id).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?.ok_or_else(ApiError::not_found)?;
+    if kind == "abandoned_recovery" && attempt.state != "awaiting_deposit" {
+        return Ok(());
+    }
+    if kind == "session_reminder" && attempt.state != "paid" {
+        return Ok(());
+    }
+    deliver_attempt(
+        state,
+        &practice,
+        &attempt,
+        if kind == "session_reminder" {
+            "automatic session reminder"
+        } else {
+            "automatic abandoned-booking recovery"
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+async fn deliver_attempt(
+    state: &AppState,
+    practice: &PracticeRow,
+    attempt: &AttemptRow,
+    purpose: &str,
+) -> Result<String, ApiError> {
+    let channel = preferred_channel(attempt)?;
     if practice.delivery_webhook_url.is_empty() {
         return Err(ApiError::conflict(
             "delivery_not_connected",
-            "Connect an HTTPS delivery webhook before sending a recovery message.",
+            "Automatic delivery is waiting for a delivery connection.",
         ));
     }
     let target = if channel == "email" {
-        decrypt_optional(&state, attempt.email_encrypted.as_deref())?
+        decrypt_optional(state, attempt.email_encrypted.as_deref())?
     } else {
-        decrypt_optional(&state, attempt.phone_encrypted.as_deref())?
+        decrypt_optional(state, attempt.phone_encrypted.as_deref())?
     };
-    let response = state
-        .http
-        .post(&practice.delivery_webhook_url)
-        .json(&json!({
-            "attemptId": attempt.id,
-            "channel": channel,
-            "to": target,
-            "template": "Complete your booking",
-            "replyToPractice": practice.name,
-            "receiptCallback": format!("/api/v1/provider/{}/receipts", practice.id)
-        }))
-        .send()
-        .await
-        .map_err(|_| {
-            ApiError::bad_gateway(
-                "delivery_unavailable",
-                "The delivery service did not answer. Nothing was marked as sent.",
-            )
-        })?;
+    let response = state.http.post(&practice.delivery_webhook_url).json(&json!({
+        "attemptId": attempt.id, "channel": channel, "to": target,
+        "template": if purpose.contains("reminder") { "Your session reminder" } else { "Complete your booking" },
+        "purpose": purpose, "replyToPractice": practice.name,
+        "receiptCallback": format!("/api/v1/provider/{}/receipts", practice.id)
+    })).send().await.map_err(|_| ApiError::bad_gateway("delivery_unavailable", "The delivery service did not answer. Nothing was marked as sent."))?;
     if !response.status().is_success() {
         return Err(ApiError::bad_gateway(
             "delivery_rejected",
@@ -341,8 +418,9 @@ pub(crate) async fn recover(
         ));
     }
     let event_id = Uuid::now_v7().to_string();
-    sqlx::query("INSERT OR IGNORE INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES (?, ?, ?, ?, 'accepted', 'Delivery service accepted the recovery message.', ?, ?)")
-        .bind(Uuid::now_v7().to_string()).bind(&practice.id).bind(&attempt.id).bind(channel).bind(&event_id).bind(Utc::now().timestamp())
+    sqlx::query("INSERT OR IGNORE INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES (?, ?, ?, ?, 'accepted', ?, ?, ?)")
+        .bind(Uuid::now_v7().to_string()).bind(&practice.id).bind(&attempt.id).bind(channel)
+        .bind(format!("Delivery service accepted the {purpose}.")).bind(&event_id).bind(Utc::now().timestamp())
         .execute(&state.pool).await.map_err(|_| ApiError::internal())?;
     sqlx::query(
         "UPDATE practice_attempts SET state = 'recovery_due' WHERE id = ? AND practice_id = ?",
@@ -352,9 +430,20 @@ pub(crate) async fn recover(
     .execute(&state.pool)
     .await
     .map_err(|_| ApiError::internal())?;
-    Ok(Json(
-        json!({"status":"accepted", "channel": channel, "eventId": event_id}),
-    ))
+    Ok(event_id)
+}
+
+fn preferred_channel(attempt: &AttemptRow) -> Result<&'static str, ApiError> {
+    if attempt.email_consent && attempt.email_encrypted.is_some() {
+        Ok("email")
+    } else if attempt.sms_consent && attempt.phone_encrypted.is_some() {
+        Ok("sms")
+    } else {
+        Err(ApiError::conflict(
+            "consent_required",
+            "No permitted contact channel is recorded. This recovery stays stopped.",
+        ))
+    }
 }
 
 pub(crate) async fn receipt(
@@ -488,6 +577,19 @@ pub(crate) async fn payment(
             None => Err(ApiError::not_found()),
         };
     }
+    let scheduled_for: i64 = sqlx::query_scalar(
+        "SELECT scheduled_for FROM practice_attempts WHERE id = ? AND practice_id = ?",
+    )
+    .bind(&input.attempt_id)
+    .bind(&practice_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|_| ApiError::internal())?;
+    let now = Utc::now().timestamp();
+    sqlx::query("INSERT OR IGNORE INTO practice_scheduled_jobs (id, practice_id, attempt_id, kind, due_at, created_at) VALUES (?, ?, ?, 'session_reminder', ?, ?)")
+        .bind(Uuid::now_v7().to_string()).bind(&practice_id).bind(&input.attempt_id)
+        .bind((scheduled_for - 24 * 60 * 60).max(now)).bind(now)
+        .execute(&state.pool).await.map_err(|_| ApiError::internal())?;
     Ok(Json(json!({"recorded":true,"duplicate":false})))
 }
 
@@ -535,6 +637,8 @@ async fn load_practice(state: &AppState, token: &str) -> Result<PracticeView, Ap
     for attempt in attempts {
         let events = sqlx::query_as::<_, EventView>("SELECT channel, status, detail, strftime('%Y-%m-%dT%H:%M:%SZ', occurred_at, 'unixepoch') AS occurred_at FROM practice_delivery_events WHERE attempt_id = ? ORDER BY occurred_at")
             .bind(&attempt.id).fetch_all(&state.pool).await.map_err(|_| ApiError::internal())?;
+        let scheduled_jobs = sqlx::query_as::<_, ScheduledJobView>("SELECT kind, strftime('%Y-%m-%dT%H:%M:%SZ', due_at, 'unixepoch') AS due_at, status, last_error FROM practice_scheduled_jobs WHERE attempt_id = ? ORDER BY due_at")
+            .bind(&attempt.id).fetch_all(&state.pool).await.map_err(|_| ApiError::internal())?;
         views.push(AttemptView {
             id: attempt.id,
             client_name: decrypt(state, &attempt.client_name_encrypted)?,
@@ -547,6 +651,7 @@ async fn load_practice(state: &AppState, token: &str) -> Result<PracticeView, Ap
             consent_wording: attempt.consent_wording,
             consent_recorded_at: timestamp(attempt.consent_recorded_at),
             events,
+            scheduled_jobs,
         });
     }
     Ok(PracticeView {
@@ -797,13 +902,17 @@ mod tests {
     use http_body_util::BodyExt;
     use serde_json::{json, Value};
     use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
-    use std::sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
+    use std::{
+        path::PathBuf,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
     };
+    use tokio::sync::Mutex;
     use tower::ServiceExt;
 
-    use crate::{app_router, migrations};
+    use crate::{app_router, migrations, AppState};
 
     async fn test_app() -> (axum::Router, SqlitePool) {
         let pool = SqlitePoolOptions::new()
@@ -854,6 +963,89 @@ mod tests {
         }), None).await;
         assert_eq!(status, StatusCode::CREATED);
         value
+    }
+
+    fn scheduler_state(pool: SqlitePool) -> AppState {
+        AppState {
+            build_sha: Arc::from("test"),
+            pool,
+            demo_lock: Arc::new(Mutex::new(())),
+            encryption_key: Arc::new([7_u8; 32]),
+            http: reqwest::Client::new(),
+            static_dir: Arc::new(PathBuf::new()),
+        }
+    }
+
+    #[tokio::test]
+    async fn automatic_recovery_is_durable_consent_gated_and_idempotent() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let count = hits.clone();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                axum::Router::new().route(
+                    "/send",
+                    axum::routing::post(move || {
+                        let count = count.clone();
+                        async move {
+                            count.fetch_add(1, Ordering::SeqCst);
+                            StatusCode::ACCEPTED
+                        }
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let (app, pool) = test_app().await;
+        let owner = create_owner(&app, "automatic-test").await;
+        let practice_id = owner["practice"]["id"].as_str().unwrap();
+        sqlx::query("UPDATE practices SET delivery_webhook_url = ? WHERE id = ?")
+            .bind(format!("http://{address}/send"))
+            .bind(practice_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (consented_status, consented) = send(&app, "POST", "/api/v1/public/automatic-test/attempts", json!({"clientName":"Maya Patel","email":"maya@example.test","phone":null,"scheduledFor":"2030-05-10T12:00:00Z","emailConsent":true,"smsConsent":false}), None).await;
+        assert_eq!(consented_status, StatusCode::CREATED, "{consented}");
+        let (stopped_status, stopped) = send(&app, "POST", "/api/v1/public/automatic-test/attempts", json!({"clientName":"Jordan Lee","email":"jordan@example.test","phone":null,"scheduledFor":"2030-05-10T13:00:00Z","emailConsent":true,"smsConsent":false}), None).await;
+        assert_eq!(stopped_status, StatusCode::CREATED, "{stopped}");
+        // A later consent withdrawal must stop an already queued delivery.
+        sqlx::query(
+            "UPDATE practice_attempts SET email_consent = 0, email_encrypted = NULL WHERE id = ?",
+        )
+        .bind(stopped["attemptId"].as_str().unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE practice_scheduled_jobs SET due_at = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let state = scheduler_state(pool.clone());
+        super::run_due_jobs(&state, 2).await.unwrap();
+        super::run_due_jobs(&state, 2).await.unwrap();
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            1,
+            "a due job is claimed once across retries"
+        );
+        let sent: String =
+            sqlx::query_scalar("SELECT status FROM practice_scheduled_jobs WHERE attempt_id = ?")
+                .bind(consented["attemptId"].as_str().unwrap())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let stopped_status: String =
+            sqlx::query_scalar("SELECT status FROM practice_scheduled_jobs WHERE attempt_id = ?")
+                .bind(stopped["attemptId"].as_str().unwrap())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(sent, "sent");
+        assert_eq!(stopped_status, "stopped");
     }
 
     #[tokio::test]
@@ -1017,7 +1209,7 @@ mod tests {
 
     #[tokio::test]
     async fn hosted_payment_requires_verified_callback_and_is_idempotent() {
-        let (app, _) = test_app().await;
+        let (app, pool) = test_app().await;
         let owner = create_owner(&app, "payment-test").await;
         let owner_token = owner["accessToken"].as_str().unwrap();
         let receipt_token = owner["receiptToken"].as_str().unwrap();
@@ -1076,6 +1268,12 @@ mod tests {
         )
         .await;
         assert_eq!(practice["attempts"][0]["state"], "paid");
+        let reminders: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM practice_scheduled_jobs WHERE attempt_id = ? AND kind = 'session_reminder' AND status = 'queued'")
+            .bind(attempt_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            reminders, 1,
+            "a verified deposit queues one durable reminder"
+        );
     }
 
     #[tokio::test]

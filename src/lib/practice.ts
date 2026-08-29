@@ -2,7 +2,8 @@ export const PRACTICE_TOKEN_KEY = "practice:access-token";
 export const RECEIPT_TOKEN_KEY = "practice:receipt-token";
 
 export interface DeliveryEvent { channel: "email" | "sms"; status: "accepted" | "delivered" | "bounced" | "failed"; detail: string; occurredAt: string; }
-export interface PracticeAttempt { id: string; clientName: string; email?: string; phone?: string; scheduledFor: string; state: string; emailConsent: boolean; smsConsent: boolean; consentWording: string; consentRecordedAt: string; events: DeliveryEvent[]; }
+export interface ScheduledJob { kind: "abandoned_recovery" | "session_reminder"; dueAt: string; status: "queued" | "processing" | "sent" | "stopped" | "failed"; lastError?: string; }
+export interface PracticeAttempt { id: string; clientName: string; email?: string; phone?: string; scheduledFor: string; state: string; emailConsent: boolean; smsConsent: boolean; consentWording: string; consentRecordedAt: string; events: DeliveryEvent[]; scheduledJobs: ScheduledJob[]; }
 export interface Practice { id: string; name: string; publicSlug: string; timezone: string; serviceName: string; durationMinutes: number; depositCents: number; currency: string; paymentUrl: string; deliveryWebhookUrl: string; attempts: PracticeAttempt[]; }
 export interface PublicPractice { name: string; publicSlug: string; timezone: string; serviceName: string; durationMinutes: number; depositCents: number; currency: string; paymentUrl: string; consentWording: string; }
 

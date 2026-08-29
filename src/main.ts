@@ -23,7 +23,8 @@ import {
   publicPractice,
   recoverPracticeAttempt,
   type Practice,
-  type PublicPractice
+  type PublicPractice,
+  type ScheduledJob
 } from "./lib/practice";
 
 const applicationRoot = document.querySelector<HTMLDivElement>("#app");
@@ -71,7 +72,7 @@ function homeContent(): string {
       <div class="section-intro">
         <p class="eyebrow">Sample view</p>
         <h2 id="preview-title">Sample recovery board</h2>
-        <p>Review a booking state, its contact consent, and each delivery receipt.</p>
+        <p>Review a booking, its email consent, and each delivery receipt.</p>
       </div>
       <div class="preview-board" aria-label="Sample recovery board preview">
         <div class="preview-ticket preview-ticket-muted">
@@ -126,8 +127,9 @@ function homeContent(): string {
         <h2 id="plan-title">Create a practice workspace</h2>
       </div>
       <div class="plan-copy">
-        <p>Publish one session page, capture channel consent, and review delivery receipts.</p>
-        <a class="button button-secondary" href="/start">Set up your practice</a>
+        <p>$29 per month for one practice with one to five practitioners.</p>
+        <p>Publish one session page, record email or SMS consent, and review delivery receipts.</p>
+        <div class="button-row"><a class="button button-primary" href="https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout" data-external="true">Start $29/month plan</a><a class="button button-secondary" href="/start">Set up your practice</a></div>
       </div>
     </section>`;
 }
@@ -227,7 +229,7 @@ function caseDetail(attempt: DemoAttempt): string {
     <h2 id="case-title" tabindex="-1">${escapeHtml(attempt.clientName)}</h2>
     <p>${escapeHtml(attempt.reason)}.</p>
     <section class="evidence-block" aria-labelledby="consent-title">
-      <div class="evidence-heading"><h3 id="consent-title">Email permission</h3><span class="status ${attempt.consent.email ? "status-good" : "status-blocked"}">${attempt.consent.email ? "Recorded" : "Missing"}</span></div>
+      <div class="evidence-heading"><h3 id="consent-title">Email consent</h3><span class="status ${attempt.consent.email ? "status-good" : "status-blocked"}">${attempt.consent.email ? "Recorded" : "Missing"}</span></div>
       <p class="evidence-quote">${attempt.consent.wording ? `“${escapeHtml(attempt.consent.wording)}”` : "No email wording was accepted."}</p>
       <p class="evidence-time">${consentTime}</p>
     </section>
@@ -257,11 +259,16 @@ function receiptTimeline(attempt: DemoAttempt): string {
     .join("")}</ol>`;
 }
 
+function scheduledJobs(jobs: readonly ScheduledJob[]): string {
+  if (jobs.length === 0) return "";
+  return `<section class="evidence-block" aria-label="Automatic recovery schedule"><h4>Automatic schedule</h4><ol class="schedule-list">${jobs.map((job) => `<li><strong>${job.kind === "abandoned_recovery" ? "Booking recovery" : "Session reminder"}</strong><span>${titleCase(job.status)} · ${formatDateTime(job.dueAt)}</span>${job.lastError ? `<p>${escapeHtml(job.lastError)}</p>` : ""}</li>`).join("")}</ol></section>`;
+}
+
 function startContent(): string {
   return `<article class="setup-page">
     <p class="eyebrow">Practice setup</p>
     <h1 tabindex="-1">Set up your booking recovery page</h1>
-    <p class="policy-lede">Create one paid-session page. A private access key is saved in this browser.</p>
+    <p class="policy-lede">Create one paid-session page. Recovery starts automatically 15 minutes after an unpaid booking. A private access key is saved in this browser.</p>
     ${practiceNotice ? `<p class="inline-notice" role="status" aria-live="polite">${escapeHtml(practiceNotice)}</p>` : ""}
     <form class="setup-form" data-form="create-practice">
       <fieldset><legend>Practice</legend>
@@ -276,12 +283,12 @@ function startContent(): string {
         <label>Deposit in minor units<input name="depositCents" type="number" min="0" max="1000000" required value="3500" aria-describedby="deposit-help"></label>
         <p id="deposit-help" class="field-help">For £35, enter 3500.</p>
         <label>Currency<input name="currency" required minlength="3" maxlength="3" value="GBP"></label>
-        <label>Hosted payment URL<input name="paymentUrl" type="url" inputmode="url" required value="https://example.com/hosted-payment" aria-describedby="payment-help"></label>
-        <p id="payment-help" class="field-help">Use your provider’s HTTPS checkout page. Card details never enter this product.</p>
+        <label>Hosted deposit URL<input name="paymentUrl" type="url" inputmode="url" required placeholder="https://payments.your-practice.example/session" aria-describedby="payment-help"></label>
+        <p id="payment-help" class="field-help">Use the hosted deposit page your practice already uses. Card details never enter this product.</p>
       </fieldset>
       <fieldset><legend>Delivery receipts</legend>
-        <label>Delivery webhook URL <span>(optional)</span><input name="deliveryWebhookUrl" type="url" inputmode="url" placeholder="https://your-delivery-service.example/send" aria-describedby="delivery-help"></label>
-        <p id="delivery-help" class="field-help">Connect an HTTPS endpoint that accepts recovery messages and returns delivery receipts.</p>
+        <label>Delivery connection URL<input name="deliveryWebhookUrl" type="url" inputmode="url" required placeholder="https://messages.your-practice.example/send" aria-describedby="delivery-help"></label>
+        <p id="delivery-help" class="field-help">This receives automatic recovery and reminder requests, then reports delivery receipts to the callback shown after setup.</p>
       </fieldset>
       <button class="button button-primary" type="submit">Create practice workspace</button>
     </form>
@@ -299,11 +306,11 @@ function appContent(): string {
       <p><a href="/start">Create a practice workspace</a></p></article>`;
   }
   if (!practice) return statePage("Review bookings that need action", "Loading your practice workspace.");
-  return `<section class="practice-heading"><div><p class="eyebrow">${escapeHtml(practice.name)}</p><h1 tabindex="-1">Review bookings that need action</h1><p class="lede">Check recorded consent before sending. A delivery service must accept the message before it appears here.</p></div>
+  return `<section class="practice-heading"><div><p class="eyebrow">${escapeHtml(practice.name)}</p><h1 tabindex="-1">Review bookings that need action</h1><p class="lede">Recovery and reminders run automatically when their due time arrives. Email or SMS consent decides the channel.</p></div>
     <div class="button-row"><a class="button button-secondary" href="/b/${escapeHtml(practice.publicSlug)}">Open public booking page</a><a class="button button-secondary" href="/app/settings/data">Manage data</a></div></section>
     ${practiceNotice ? `<p class="inline-notice" role="status" aria-live="polite">${escapeHtml(practiceNotice)}</p>` : ""}
     <section class="practice-board" aria-labelledby="attempts-title"><h2 id="attempts-title">Booking attempts</h2>
-      ${practice.attempts.length === 0 ? `<div class="state-panel"><div><h3>No bookings need attention</h3><p>New bookings from your public page will appear here.</p></div></div>` : `<ul class="practice-attempts">${practice.attempts.map((attempt) => `<li><article><div class="attempt-top"><h3>${escapeHtml(attempt.clientName)}</h3><span class="status ${attempt.state === "recovered" ? "status-good" : "status-attention"}">${escapeHtml(attempt.state.replaceAll("_", " "))}</span></div><p>${formatDateTime(attempt.scheduledFor)}</p><p>Email consent: <strong>${attempt.emailConsent ? "Recorded" : "Missing"}</strong> · SMS consent: <strong>${attempt.smsConsent ? "Recorded" : "Missing"}</strong></p><p class="evidence-time">Consent recorded ${formatDateTime(attempt.consentRecordedAt)}</p>${attempt.events.length ? `<ol class="receipt-timeline">${attempt.events.map((event) => `<li><span class="receipt-node" aria-hidden="true">✓</span><div><strong>${titleCase(event.status)} · ${escapeHtml(event.channel)}</strong><time datetime="${escapeHtml(event.occurredAt)}">${formatDateTime(event.occurredAt)}</time><p>${escapeHtml(event.detail)}</p></div></li>`).join("")}</ol>` : `<p>No delivery receipt yet.</p>`}<button class="button button-primary" type="button" data-action="recover-practice" data-attempt-id="${escapeHtml(attempt.id)}" ${attempt.state === "recovered" ? "disabled" : ""}>${attempt.state === "recovered" ? "Recovery delivered" : "Send permitted recovery"}</button></article></li>`).join("")}</ul>`}
+      ${practice.attempts.length === 0 ? `<div class="state-panel"><div><h3>No bookings need attention</h3><p>New bookings from your public page will appear here.</p></div></div>` : `<ul class="practice-attempts">${practice.attempts.map((attempt) => `<li><article><div class="attempt-top"><h3>${escapeHtml(attempt.clientName)}</h3><span class="status ${attempt.state === "recovered" ? "status-good" : "status-attention"}">${escapeHtml(attempt.state.replaceAll("_", " "))}</span></div><p>${formatDateTime(attempt.scheduledFor)}</p><p>Email consent: <strong>${attempt.emailConsent ? "Recorded" : "Missing"}</strong> · SMS consent: <strong>${attempt.smsConsent ? "Recorded" : "Missing"}</strong></p><p class="evidence-time">Consent recorded ${formatDateTime(attempt.consentRecordedAt)}</p>${scheduledJobs(attempt.scheduledJobs)}${attempt.events.length ? `<ol class="receipt-timeline">${attempt.events.map((event) => `<li><span class="receipt-node" aria-hidden="true">✓</span><div><strong>${titleCase(event.status)} · ${escapeHtml(event.channel)}</strong><time datetime="${escapeHtml(event.occurredAt)}">${formatDateTime(event.occurredAt)}</time><p>${escapeHtml(event.detail)}</p></div></li>`).join("")}</ol>` : `<p>No delivery receipt yet.</p>`}${attempt.scheduledJobs.some((job) => job.status === "failed") ? `<button class="button button-secondary" type="button" data-action="recover-practice" data-attempt-id="${escapeHtml(attempt.id)}">Retry delivery now</button>` : ""}</article></li>`).join("")}</ul>`}
     </section>`;
 }
 
@@ -316,7 +323,7 @@ function bookingContent(): string {
     <section class="service-ticket" aria-labelledby="service-title"><div><h2 id="service-title">${escapeHtml(publicPage.serviceName)}</h2><p>${publicPage.durationMinutes} minutes · ${formatMoney(publicPage.depositCents, publicPage.currency)} deposit</p></div><span class="status status-attention">Deposit required</span></section>
     ${practiceNotice ? `<p class="inline-notice" role="status">${escapeHtml(practiceNotice)}</p>` : ""}
     <form class="booking-form" data-form="create-booking"><label>Your name<input name="clientName" required minlength="2" maxlength="100" autocomplete="name"></label><label>Email address<input name="email" type="email" autocomplete="email"></label><label>Mobile number<input name="phone" type="tel" autocomplete="tel"></label><label>Session time<input name="scheduledFor" type="datetime-local" required value="${tomorrow.toISOString().slice(0,16)}" aria-describedby="slot-help"></label><p id="slot-help" class="field-help">A time already held by another active booking cannot be selected.</p>
-      <fieldset><legend>Contact permission</legend><p>${escapeHtml(publicPage.consentWording)}</p><label class="check-label"><input name="emailConsent" type="checkbox"> Email me about this booking</label><label class="check-label"><input name="smsConsent" type="checkbox"> Text me about this booking</label></fieldset>
+      <fieldset><legend>Contact consent</legend><p>${escapeHtml(publicPage.consentWording)}</p><label class="check-label"><input name="emailConsent" type="checkbox"> I give email consent for this booking</label><label class="check-label"><input name="smsConsent" type="checkbox"> I give SMS consent for this booking</label></fieldset>
       <button class="button button-primary" type="submit">Save booking and open payment</button><p class="action-note">You will leave this site for the practice’s hosted payment page.</p></form></article>`;
 }
 
@@ -342,7 +349,7 @@ function privacyContent(): string {
       <section><h2>What the demo stores</h2><p>Your browser keeps one random demo token under <code>demo:workspace-token</code>.</p><p>The server keeps the matching sample workspace for up to 24 hours.</p></section>
       <section><h2>What the demo does not contact</h2><p>Demo actions do not call payment, messaging, sign-in, billing, or AI services.</p><p>The simulated receipt comes from this product’s own server.</p></section>
       <section><h2>How to remove the sample</h2><p>Reset demo makes the current workspace inaccessible and creates a fresh one.</p><p>Start for real removes the browser token. The inaccessible server copy expires automatically.</p></section>
-      <section><h2>What a practice stores</h2><p>The service stores practice settings, booking attempts, channel consent, and delivery receipts.</p><p>Client names, email addresses, and phone numbers are encrypted before database storage.</p><p>Payment card details stay on the practice’s hosted payment page and never enter this product.</p></section>
+      <section><h2>What a practice stores</h2><p>The service stores practice settings, booking attempts, email or SMS consent, and delivery receipts.</p><p>Client names, email addresses, and phone numbers are encrypted before database storage.</p><p>Payment card details stay on the practice’s hosted payment page and never enter this product.</p></section>
       <section><h2>Export and deletion</h2><p>A practice owner can export its records or delete the full practice from the data controls page.</p></section>
       <div class="button-row"><a class="button button-primary" href="/demo">Open the sample workspace</a><a class="button button-secondary" href="/app/settings/data">Open data controls</a></div>
     </article>`;
@@ -356,7 +363,7 @@ function termsContent(): string {
       <p class="policy-lede">Use the demo with its fictional records. Use a real workspace only for bookings you are allowed to manage.</p>
       <section><h2>Use the sample safely</h2><p>Use only the fictional records already provided. Do not enter client contact details.</p></section>
       <section><h2>Hosted payments</h2><p>Practices provide their own hosted payment link. This product does not collect card details or confirm payment from a return URL.</p></section>
-      <section><h2>Messages and consent</h2><p>Connect a delivery service only when it honours the recorded email or SMS permission.</p><p>A delivery receipt reports provider status. It is not a guarantee that a person read the message.</p></section>
+      <section><h2>Messages and consent</h2><p>Automatic recovery and reminders use only recorded email or SMS consent.</p><p>A delivery receipt reports provider status. It is not a guarantee that a person read the message.</p></section>
       <section><h2>Availability</h2><p>The sample may reset during maintenance. Use Reset demo whenever its state is unclear.</p></section>
       <section><h2>Fair use</h2><p>Automated abuse may be rate limited. A limited request returns a retry time.</p></section>
       <a class="button button-primary" href="/demo">Try the sample workspace</a>
@@ -452,7 +459,7 @@ function render({ focusHeading = false }: { focusHeading?: boolean } = {}): void
     </header>
     <main id="main" class="main-${route}" tabindex="-1">${contentFor(route)}</main>
     <footer class="site-footer">
-      <p>Review stopped bookings, contact consent, and delivery receipts.</p>
+      <p>Review stopped bookings, email or SMS consent, and delivery receipts.</p>
       <div><a href="/privacy">Privacy</a><a href="/terms">Terms</a><span>Built by Param Factory</span><span>${escapeHtml(import.meta.env.VITE_BUILD_SHA ?? "local build")}</span></div>
       <p class="art-credit">Original rail artwork made for this product.</p>
     </footer>
