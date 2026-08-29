@@ -1,3 +1,79 @@
+# Repair 5 handoff — implementation complete; external release gate remains
+
+**Work order:** `booking-recovery-loop-repair-5`
+**Base:** `c31da6c41dfea11c01aca3158b2372038a8604ab`
+**Status:** local repair verification passes. Deployment, billing registration,
+and Entra redirect registration were not performed from this repository.
+
+## What changed
+
+- Reproduced the verifier's split-store failure as an exact two-replica
+  create/read/delete regression. The new test creates a practice through one
+  independent API router backed by a shared durable database, reads and
+  deletes it through another, then proves deletion is visible to the first.
+- Replaced the production data-path contract with SQLx `AnyPool`: SQLite is
+  retained for no-environment local/test boot while `DATABASE_URL` supports
+  the shared PostgreSQL deployment. The deployment contract specifies the
+  factory PostgreSQL secret, a shared contact-encryption secret, managed
+  point-in-time restore, and multi-replica scale.
+- Moved the service-wide API allowance into the database, before every
+  `/api/v1` endpoint. `/health` is the sole exemption. Existing route limits
+  remain stricter for writes; DELETE now returns 429 with a positive
+  `Retry-After` instead of being whitelisted.
+- Removed production owner-controlled delivery destinations. The only
+  accepted production connection value is the supported `resend` provider;
+  HTTP redirects are disabled. Loopback URLs are allowed only in explicitly
+  opted-in automated fixtures. Privacy copy now identifies the contact-data
+  transfer boundary.
+- Replaced the incomplete queued-reminder evidence with an end-to-end due-job
+  test: a verified payment queues a reminder, the scheduler runs twice, and
+  exactly one provider delivery and sent job are observed.
+
+## Exact local evidence
+
+Executed after `npm ci` on 2026-08-29 UTC:
+
+```text
+npm test                                                        10 passed
+npm run check:backend                                           22 passed
+npm run test:deployment                                         passed
+npm run build                                                   passed; dist/ produced
+npm run check:size                                              JS 12,539 B gzip; CSS 21,906 B raw
+npm run test:e2e                                                27 Chromium passed
+cargo clippy --all-targets -- -D warnings                      passed
+cargo build --release                                           passed
+all 25 commands in .factory/claims.json                        passed individually
+PORT=4191 cargo run; GET /health                               200 {"status":"ok","build_sha":"dev"}
+```
+
+The new claim commands are:
+
+```text
+shared-practice-storage  cargo test ... shared_durable_store_prevents_the_verifier_cross_replica_read_and_delete_split
+automatic-reminder       cargo test ... automatic_reminder_is_delivered_once_when_due_after_verified_deposit
+```
+
+## Needs factory operator action before release
+
+This repository is not authorized to mutate infrastructure, billing, or Entra
+application registration. The live Container App was read-only inspected and
+still runs the verifier's image with `minReplicas: 1`, `maxReplicas: 3`, no
+volume, and only `PORT`; it must be redeployed with the contract in
+`deploy/containerapp.m1.json`, specifically the shared PostgreSQL
+`DATABASE_URL` and `CONTACT_ENCRYPTION_KEY` secret. Run a live cross-replica
+create/read/delete and 200-request rate probe after deployment.
+
+The factory must also register/enable the `booking-recovery-loop` $29/month
+Sociobot/Dodo product (the verified checkout endpoint returned 404), register
+`https://booking-recovery-loop.sociobot.in/auth/callback` on the shared Entra
+SPA application, and supply/configure production Stripe and delivery-provider
+credentials. The legacy owner-key payment callback and workspace flow are
+still present, so the full CIAM, signed Stripe webhook, and usable paid-tier
+gate are not honestly release-ready until those product integrations are
+implemented and live-verified.
+
+---
+
 # Verification 5 handoff — FAIL
 
 **Work order:** `booking-recovery-loop-verify-5`

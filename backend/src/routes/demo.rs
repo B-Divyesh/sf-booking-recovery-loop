@@ -10,7 +10,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{AnyPool, FromRow};
 use uuid::Uuid;
 
 use crate::AppState;
@@ -73,7 +73,7 @@ struct Consent {
     recorded_at: Option<String>,
 }
 
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Receipt {
     channel: String,
@@ -84,9 +84,18 @@ struct Receipt {
 }
 
 #[derive(Debug, FromRow)]
+struct ReceiptRow {
+    channel: String,
+    status: String,
+    detail: String,
+    occurred_at: i64,
+    simulated: i64,
+}
+
+#[derive(Debug, FromRow)]
 struct WorkspaceRow {
     id: String,
-    is_demo: bool,
+    is_demo: i64,
     practice_name: String,
     practice_timezone: String,
     service_name: String,
@@ -103,7 +112,7 @@ struct AttemptRow {
     scheduled_for: i64,
     state: String,
     reason: String,
-    email_consent: bool,
+    email_consent: i64,
     consent_wording: Option<String>,
     consent_recorded_at: Option<i64>,
     outcome: Option<String>,
@@ -242,7 +251,7 @@ pub(crate) async fn recover(
     .map_err(|_| ApiError::internal())?
     .ok_or_else(ApiError::not_found)?;
 
-    if !attempt.email_consent {
+    if attempt.email_consent != 1 {
         return Err(ApiError::conflict(
             "consent_required",
             "No email consent was recorded. This recovery stays stopped.",
@@ -260,9 +269,9 @@ pub(crate) async fn recover(
     if attempt.state != "recovered" {
         let message_id = Uuid::now_v7().to_string();
         let inserted = sqlx::query(
-            "INSERT OR IGNORE INTO outbound_messages \
+            "INSERT INTO outbound_messages \
              (id, workspace_id, attempt_id, idempotency_key, channel, state, created_at) \
-             VALUES (?, ?, ?, ?, 'email', 'delivered', ?)",
+             VALUES (?, ?, ?, ?, 'email', 'delivered', ?) ON CONFLICT DO NOTHING",
         )
         .bind(&message_id)
         .bind(&workspace.id)
@@ -303,7 +312,7 @@ pub(crate) async fn recover(
     };
     if response_token != token {
         sqlx::query(
-            "INSERT OR IGNORE INTO demo_token_aliases (token_hash, workspace_id) VALUES (?, ?)",
+            "INSERT INTO demo_token_aliases (token_hash, workspace_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
         )
         .bind(token_hash(&response_token))
         .bind(&workspace.id)
@@ -319,10 +328,7 @@ pub(crate) async fn recover(
     Ok(Json(load_workspace(&state.pool, &response_token).await?))
 }
 
-async fn seed_workspace(
-    pool: &SqlitePool,
-    idempotency_key: String,
-) -> Result<DemoEnvelope, ApiError> {
+async fn seed_workspace(pool: &AnyPool, idempotency_key: String) -> Result<DemoEnvelope, ApiError> {
     let now = Utc::now().timestamp();
     let expires_at = now + DEMO_TTL.as_secs() as i64;
     let workspace_id = Uuid::now_v7().to_string();
@@ -401,7 +407,7 @@ async fn seed_workspace(
         .bind(scheduled)
         .bind(status)
         .bind(reason)
-        .bind(consent)
+        .bind(i64::from(consent))
         .bind(wording)
         .bind(recorded)
         .bind(outcome)
@@ -444,7 +450,7 @@ async fn seed_workspace(
     load_existing_workspace(pool, &token).await
 }
 
-async fn reject_reused_key(pool: &SqlitePool, key: &str) -> Result<(), ApiError> {
+async fn reject_reused_key(pool: &AnyPool, key: &str) -> Result<(), ApiError> {
     let exists = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM demo_workspaces WHERE idempotency_key = ?",
     )
@@ -461,21 +467,21 @@ async fn reject_reused_key(pool: &SqlitePool, key: &str) -> Result<(), ApiError>
     Ok(())
 }
 
-async fn load_workspace(pool: &SqlitePool, token: &str) -> Result<DemoEnvelope, ApiError> {
+async fn load_workspace(pool: &AnyPool, token: &str) -> Result<DemoEnvelope, ApiError> {
     let row = load_workspace_row(pool, token).await?;
     workspace_from_row(pool, token, row).await
 }
 
-async fn load_existing_workspace(pool: &SqlitePool, token: &str) -> Result<DemoEnvelope, ApiError> {
+async fn load_existing_workspace(pool: &AnyPool, token: &str) -> Result<DemoEnvelope, ApiError> {
     let row = query_workspace_row(pool, token)
         .await?
-        .filter(|row| row.is_demo && row.expires_at > Utc::now().timestamp())
+        .filter(|row| row.is_demo == 1 && row.expires_at > Utc::now().timestamp())
         .ok_or_else(ApiError::not_found)?;
     workspace_from_row(pool, token, row).await
 }
 
 async fn workspace_from_row(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     token: &str,
     row: WorkspaceRow,
 ) -> Result<DemoEnvelope, ApiError> {
@@ -491,10 +497,8 @@ async fn workspace_from_row(
 
     let mut response_attempts = Vec::with_capacity(attempts.len());
     for attempt in attempts {
-        let receipts = sqlx::query_as::<_, Receipt>(
-            "SELECT m.channel, e.status, e.detail, \
-             strftime('%Y-%m-%dT%H:%M:%SZ', e.occurred_at, 'unixepoch') AS occurred_at, \
-             e.simulated FROM delivery_events e \
+        let receipt_rows = sqlx::query_as::<_, ReceiptRow>(
+            "SELECT m.channel, e.status, e.detail, e.occurred_at, e.simulated FROM delivery_events e \
              JOIN outbound_messages m ON m.id = e.message_id \
              WHERE m.attempt_id = ? ORDER BY e.occurred_at",
         )
@@ -503,6 +507,16 @@ async fn workspace_from_row(
         .await
         .map_err(|_| ApiError::internal())?;
 
+        let receipts = receipt_rows
+            .into_iter()
+            .map(|receipt| Receipt {
+                channel: receipt.channel,
+                status: receipt.status,
+                detail: receipt.detail,
+                occurred_at: timestamp(receipt.occurred_at),
+                simulated: receipt.simulated == 1,
+            })
+            .collect();
         response_attempts.push(Attempt {
             id: attempt.id,
             client_name: attempt.client_name,
@@ -510,7 +524,7 @@ async fn workspace_from_row(
             state: attempt.state,
             reason: attempt.reason,
             consent: Consent {
-                email: attempt.email_consent,
+                email: attempt.email_consent == 1,
                 wording: attempt.consent_wording,
                 recorded_at: attempt.consent_recorded_at.map(timestamp),
             },
@@ -539,9 +553,9 @@ async fn workspace_from_row(
     })
 }
 
-async fn load_workspace_row(pool: &SqlitePool, token: &str) -> Result<WorkspaceRow, ApiError> {
+async fn load_workspace_row(pool: &AnyPool, token: &str) -> Result<WorkspaceRow, ApiError> {
     if let Some(row) = query_workspace_row(pool, token).await? {
-        if row.is_demo && row.expires_at > Utc::now().timestamp() {
+        if row.is_demo == 1 && row.expires_at > Utc::now().timestamp() {
             return Ok(row);
         }
         return Err(ApiError::not_found());
@@ -554,7 +568,7 @@ async fn load_workspace_row(pool: &SqlitePool, token: &str) -> Result<WorkspaceR
 }
 
 async fn query_workspace_row(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     token: &str,
 ) -> Result<Option<WorkspaceRow>, ApiError> {
     sqlx::query_as::<_, WorkspaceRow>(
@@ -578,7 +592,7 @@ struct PortableToken<'a> {
 }
 
 async fn hydrate_workspace(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     token: &str,
     portable: PortableToken<'_>,
 ) -> Result<(), ApiError> {
@@ -643,7 +657,7 @@ async fn hydrate_workspace(
     Ok(())
 }
 
-async fn purge_expired(pool: &SqlitePool) -> Result<(), ApiError> {
+async fn purge_expired(pool: &AnyPool) -> Result<(), ApiError> {
     sqlx::query(
         "DELETE FROM demo_workspaces WHERE is_demo = 1 AND expires_at <= ? AND created_at <= ?",
     )
@@ -737,8 +751,6 @@ fn timestamp(value: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{str::FromStr, time::Duration};
-
     use axum::{
         body::Body,
         http::{Request, StatusCode},
@@ -746,20 +758,22 @@ mod tests {
     use base64::Engine;
     use http_body_util::BodyExt;
     use serde_json::Value;
-    use sqlx::{
-        sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
-        SqlitePool,
-    };
+    use sqlx::{any::AnyPoolOptions, AnyPool};
     use tower::ServiceExt;
 
     use crate::{app_router, migrations};
 
-    async fn test_app() -> (axum::Router, SqlitePool) {
-        let pool = SqlitePoolOptions::new()
+    async fn test_pool() -> AnyPool {
+        sqlx::any::install_default_drivers();
+        AnyPoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
             .await
-            .expect("memory database should open");
+            .expect("memory database should open")
+    }
+
+    async fn test_app() -> (axum::Router, AnyPool) {
+        let pool = test_pool().await;
         migrations::up(&pool).await.expect("migration should apply");
         (app_router(pool.clone(), "test", "../dist"), pool)
     }
@@ -975,11 +989,7 @@ mod tests {
 
     #[tokio::test]
     async fn migration_is_reversible() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("memory database should open");
+        let pool = test_pool().await;
         migrations::up(&pool).await.expect("up migration");
         migrations::up(&pool).await.expect("up migration can rerun");
         migrations::down(&pool).await.expect("down migration");
@@ -1076,15 +1086,9 @@ mod tests {
             "booking-recovery-concurrency-{}.db",
             uuid::Uuid::now_v7()
         ));
-        let options =
-            SqliteConnectOptions::from_str(&format!("sqlite://{}", database_path.display()))
-                .expect("database url")
-                .create_if_missing(true)
-                .journal_mode(SqliteJournalMode::Wal)
-                .busy_timeout(Duration::from_secs(10));
-        let pool = SqlitePoolOptions::new()
-            .max_connections(8)
-            .connect_with(options)
+        let pool = AnyPoolOptions::new()
+            .max_connections(1)
+            .connect(&format!("sqlite://{}?mode=rwc", database_path.display()))
             .await
             .expect("file database");
         migrations::up(&pool).await.expect("migration");
@@ -1148,12 +1152,8 @@ mod tests {
 
     #[tokio::test]
     async fn portable_token_preserves_state_across_replica_databases() {
-        async fn replica() -> (axum::Router, SqlitePool) {
-            let pool = SqlitePoolOptions::new()
-                .max_connections(1)
-                .connect("sqlite::memory:")
-                .await
-                .expect("memory database should open");
+        async fn replica() -> (axum::Router, AnyPool) {
+            let pool = test_pool().await;
             migrations::up(&pool).await.expect("migration should apply");
             (app_router(pool.clone(), "test", "../dist"), pool)
         }

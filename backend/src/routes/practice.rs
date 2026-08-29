@@ -120,7 +120,7 @@ struct AttemptView {
     scheduled_jobs: Vec<ScheduledJobView>,
 }
 
-#[derive(Serialize, FromRow)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EventView {
     channel: String,
@@ -129,11 +129,27 @@ struct EventView {
     occurred_at: String,
 }
 
-#[derive(Serialize, FromRow)]
+#[derive(FromRow)]
+struct EventRow {
+    channel: String,
+    status: String,
+    detail: String,
+    occurred_at: i64,
+}
+
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ScheduledJobView {
     kind: String,
     due_at: String,
+    status: String,
+    last_error: Option<String>,
+}
+
+#[derive(FromRow)]
+struct ScheduledJobRow {
+    kind: String,
+    due_at: i64,
     status: String,
     last_error: Option<String>,
 }
@@ -160,8 +176,8 @@ struct AttemptRow {
     phone_encrypted: Option<String>,
     scheduled_for: i64,
     state: String,
-    email_consent: bool,
-    sms_consent: bool,
+    email_consent: i64,
+    sms_consent: i64,
     consent_wording: String,
     consent_recorded_at: i64,
 }
@@ -170,7 +186,7 @@ pub(crate) async fn create(
     State(state): State<AppState>,
     Json(input): Json<CreatePractice>,
 ) -> Result<(StatusCode, Json<CreatedPractice>), ApiError> {
-    validate_practice(&input)?;
+    validate_practice(&input, state.allow_test_delivery_urls)?;
     let access_token = random_token("owner")?;
     let receipt_token = random_token("receipt")?;
     let id = Uuid::now_v7().to_string();
@@ -268,8 +284,8 @@ pub(crate) async fn create_attempt(
     .bind(encrypt_optional(&state, input.email.as_deref())?)
     .bind(encrypt_optional(&state, input.phone.as_deref())?)
     .bind(scheduled)
-    .bind(input.email_consent)
-    .bind(input.sms_consent)
+    .bind(i64::from(input.email_consent))
+    .bind(i64::from(input.sms_consent))
     .bind(CONSENT_WORDING)
     .bind(now)
     .bind(now)
@@ -332,7 +348,7 @@ pub(crate) async fn test_delivery_connection(
     }
     let response = state
         .http
-        .post(&practice.delivery_webhook_url)
+        .post(delivery_target(&state, &practice.delivery_webhook_url)?)
         .json(&json!({
             "type": "connection_test",
             "practice": practice.name,
@@ -445,7 +461,7 @@ async fn deliver_attempt(
     } else {
         decrypt_optional(state, attempt.phone_encrypted.as_deref())?
     };
-    let response = state.http.post(&practice.delivery_webhook_url).json(&json!({
+    let response = state.http.post(delivery_target(state, &practice.delivery_webhook_url)?).json(&json!({
         "attemptId": attempt.id, "channel": channel, "to": target,
         "template": if purpose.contains("reminder") { "Your session reminder" } else { "Complete your booking" },
         "purpose": purpose, "replyToPractice": practice.name,
@@ -458,7 +474,7 @@ async fn deliver_attempt(
         ));
     }
     let event_id = Uuid::now_v7().to_string();
-    sqlx::query("INSERT OR IGNORE INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES (?, ?, ?, ?, 'accepted', ?, ?, ?)")
+    sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES (?, ?, ?, ?, 'accepted', ?, ?, ?) ON CONFLICT DO NOTHING")
         .bind(Uuid::now_v7().to_string()).bind(&practice.id).bind(&attempt.id).bind(channel)
         .bind(format!("Delivery service accepted the {purpose}.")).bind(&event_id).bind(Utc::now().timestamp())
         .execute(&state.pool).await.map_err(|_| ApiError::internal())?;
@@ -474,9 +490,9 @@ async fn deliver_attempt(
 }
 
 fn preferred_channel(attempt: &AttemptRow) -> Result<&'static str, ApiError> {
-    if attempt.email_consent && attempt.email_encrypted.is_some() {
+    if attempt.email_consent == 1 && attempt.email_encrypted.is_some() {
         Ok("email")
-    } else if attempt.sms_consent && attempt.phone_encrypted.is_some() {
+    } else if attempt.sms_consent == 1 && attempt.phone_encrypted.is_some() {
         Ok("sms")
     } else {
         Err(ApiError::conflict(
@@ -520,7 +536,7 @@ pub(crate) async fn receipt(
         .map_err(|_| ApiError::bad_request("invalid_time", "Use an RFC 3339 receipt time."))?
         .map(|v| v.timestamp())
         .unwrap_or_else(|| Utc::now().timestamp());
-    let inserted = sqlx::query("INSERT OR IGNORE INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) SELECT ?, ?, id, ?, ?, ?, ?, ? FROM practice_attempts WHERE id = ? AND practice_id = ?")
+    let inserted = sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) SELECT ?, ?, id, ?, ?, ?, ?, ? FROM practice_attempts WHERE id = ? AND practice_id = ? ON CONFLICT DO NOTHING")
         .bind(Uuid::now_v7().to_string()).bind(&practice_id).bind(&input.channel).bind(&input.status).bind(clean_detail(&input.detail)).bind(&input.provider_event_id).bind(occurred).bind(&input.attempt_id).bind(&practice_id)
         .execute(&state.pool).await.map_err(|_| ApiError::internal())?;
     if inserted.rows_affected() == 0 {
@@ -554,7 +570,7 @@ pub(crate) async fn receipt(
         if let Some((phone, webhook, practice_name)) = fallback {
             let response = state
                 .http
-                .post(webhook)
+                .post(delivery_target(&state, &webhook)?)
                 .json(&json!({
                     "attemptId": input.attempt_id, "channel": "sms", "to": decrypt(&state, &phone)?,
                     "template": "Complete your booking", "replyToPractice": practice_name,
@@ -563,7 +579,7 @@ pub(crate) async fn receipt(
                 .send()
                 .await;
             if response.is_ok_and(|value| value.status().is_success()) {
-                sqlx::query("INSERT OR IGNORE INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES (?, ?, ?, 'sms', 'accepted', 'Email bounced; the permitted SMS fallback was accepted.', ?, ?)")
+                sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES (?, ?, ?, 'sms', 'accepted', 'Email bounced; the permitted SMS fallback was accepted.', ?, ?) ON CONFLICT DO NOTHING")
                     .bind(Uuid::now_v7().to_string()).bind(&practice_id).bind(&input.attempt_id).bind(format!("fallback:{}", input.provider_event_id)).bind(Utc::now().timestamp())
                     .execute(&state.pool).await.map_err(|_| ApiError::internal())?;
             }
@@ -626,7 +642,7 @@ pub(crate) async fn payment(
     .await
     .map_err(|_| ApiError::internal())?;
     let now = Utc::now().timestamp();
-    sqlx::query("INSERT OR IGNORE INTO practice_scheduled_jobs (id, practice_id, attempt_id, kind, due_at, created_at) VALUES (?, ?, ?, 'session_reminder', ?, ?)")
+    sqlx::query("INSERT INTO practice_scheduled_jobs (id, practice_id, attempt_id, kind, due_at, created_at) VALUES (?, ?, ?, 'session_reminder', ?, ?) ON CONFLICT DO NOTHING")
         .bind(Uuid::now_v7().to_string()).bind(&practice_id).bind(&input.attempt_id)
         .bind((scheduled_for - 24 * 60 * 60).max(now)).bind(now)
         .execute(&state.pool).await.map_err(|_| ApiError::internal())?;
@@ -675,10 +691,28 @@ async fn load_practice(state: &AppState, token: &str) -> Result<PracticeView, Ap
         .bind(&row.id).fetch_all(&state.pool).await.map_err(|_| ApiError::internal())?;
     let mut views = Vec::with_capacity(attempts.len());
     for attempt in attempts {
-        let events = sqlx::query_as::<_, EventView>("SELECT channel, status, detail, strftime('%Y-%m-%dT%H:%M:%SZ', occurred_at, 'unixepoch') AS occurred_at FROM practice_delivery_events WHERE attempt_id = ? ORDER BY occurred_at")
+        let event_rows = sqlx::query_as::<_, EventRow>("SELECT channel, status, detail, occurred_at FROM practice_delivery_events WHERE attempt_id = ? ORDER BY occurred_at")
             .bind(&attempt.id).fetch_all(&state.pool).await.map_err(|_| ApiError::internal())?;
-        let scheduled_jobs = sqlx::query_as::<_, ScheduledJobView>("SELECT kind, strftime('%Y-%m-%dT%H:%M:%SZ', due_at, 'unixepoch') AS due_at, status, last_error FROM practice_scheduled_jobs WHERE attempt_id = ? ORDER BY due_at")
+        let events = event_rows
+            .into_iter()
+            .map(|event| EventView {
+                channel: event.channel,
+                status: event.status,
+                detail: event.detail,
+                occurred_at: timestamp(event.occurred_at),
+            })
+            .collect();
+        let job_rows = sqlx::query_as::<_, ScheduledJobRow>("SELECT kind, due_at, status, last_error FROM practice_scheduled_jobs WHERE attempt_id = ? ORDER BY due_at")
             .bind(&attempt.id).fetch_all(&state.pool).await.map_err(|_| ApiError::internal())?;
+        let scheduled_jobs = job_rows
+            .into_iter()
+            .map(|job| ScheduledJobView {
+                kind: job.kind,
+                due_at: timestamp(job.due_at),
+                status: job.status,
+                last_error: job.last_error,
+            })
+            .collect();
         views.push(AttemptView {
             id: attempt.id,
             client_name: decrypt(state, &attempt.client_name_encrypted)?,
@@ -686,8 +720,8 @@ async fn load_practice(state: &AppState, token: &str) -> Result<PracticeView, Ap
             phone: decrypt_optional(state, attempt.phone_encrypted.as_deref())?,
             scheduled_for: timestamp(attempt.scheduled_for),
             state: attempt.state,
-            email_consent: attempt.email_consent,
-            sms_consent: attempt.sms_consent,
+            email_consent: attempt.email_consent == 1,
+            sms_consent: attempt.sms_consent == 1,
             consent_wording: attempt.consent_wording,
             consent_recorded_at: timestamp(attempt.consent_recorded_at),
             events,
@@ -719,7 +753,10 @@ async fn public_practice(state: &AppState, slug: &str) -> Result<PracticeRow, Ap
         .bind(slug).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?.ok_or_else(ApiError::not_found)
 }
 
-fn validate_practice(input: &CreatePractice) -> Result<(), ApiError> {
+fn validate_practice(
+    input: &CreatePractice,
+    allow_test_delivery_urls: bool,
+) -> Result<(), ApiError> {
     if input.name.trim().len() < 2
         || input.name.len() > 80
         || input.service_name.trim().len() < 2
@@ -752,10 +789,43 @@ fn validate_practice(input: &CreatePractice) -> Result<(), ApiError> {
         ));
     }
     validate_https(&input.payment_url, "payment")?;
-    if !input.delivery_webhook_url.is_empty() {
-        validate_https(&input.delivery_webhook_url, "delivery")?;
+    if !input.delivery_webhook_url.is_empty()
+        && input.delivery_webhook_url != "resend"
+        && !(allow_test_delivery_urls && is_loopback_test_url(&input.delivery_webhook_url))
+    {
+        return Err(ApiError::bad_request(
+            "unsupported_delivery_provider",
+            "Choose the supported Resend delivery connection.",
+        ));
     }
     Ok(())
+}
+
+/// Owner input is a provider identifier, never a destination URL. This keeps
+/// contact data out of an arbitrary server-side request path. The loopback
+/// exception is compiled into test-only harnesses and is guarded by an
+/// explicit environment opt-in for browser integration tests.
+fn delivery_target<'a>(state: &AppState, configured: &'a str) -> Result<&'a str, ApiError> {
+    match configured {
+        "resend" => Ok("https://api.resend.com/emails"),
+        value if state.allow_test_delivery_urls && is_loopback_test_url(value) => Ok(value),
+        _ => Err(ApiError::conflict(
+            "delivery_not_connected",
+            "Connect the supported Resend delivery service before sending messages.",
+        )),
+    }
+}
+
+fn is_loopback_test_url(value: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    matches!(url.scheme(), "http" | "https")
+        && matches!(
+            url.host_str(),
+            Some("127.0.0.1") | Some("localhost") | Some("::1")
+        )
+        && url.port().is_some()
 }
 
 fn validate_attempt(input: &CreateAttempt) -> Result<(), ApiError> {
@@ -943,7 +1013,7 @@ mod tests {
     use chrono::Utc;
     use http_body_util::BodyExt;
     use serde_json::{json, Value};
-    use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+    use sqlx::{any::AnyPoolOptions, AnyPool};
     use std::{
         path::PathBuf,
         sync::{
@@ -957,8 +1027,9 @@ mod tests {
 
     use crate::{app_router, migrations, AppState};
 
-    async fn test_app() -> (axum::Router, SqlitePool) {
-        let pool = SqlitePoolOptions::new()
+    async fn test_app() -> (axum::Router, AnyPool) {
+        sqlx::any::install_default_drivers();
+        let pool = AnyPoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
             .await
@@ -1008,13 +1079,14 @@ mod tests {
         value
     }
 
-    fn scheduler_state(pool: SqlitePool) -> AppState {
+    fn scheduler_state(pool: AnyPool) -> AppState {
         AppState {
             build_sha: Arc::from("test"),
             pool,
             demo_lock: Arc::new(Mutex::new(())),
             encryption_key: Arc::new([7_u8; 32]),
             http: reqwest::Client::new(),
+            allow_test_delivery_urls: true,
             static_dir: Arc::new(PathBuf::new()),
         }
     }
@@ -1463,11 +1535,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn automatic_reminder_is_queued_once_after_verified_deposit() {
+    async fn automatic_reminder_is_delivered_once_when_due_after_verified_deposit() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let count = hits.clone();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                axum::Router::new().route(
+                    "/send",
+                    axum::routing::post(move || {
+                        let count = count.clone();
+                        async move {
+                            count.fetch_add(1, Ordering::SeqCst);
+                            StatusCode::ACCEPTED
+                        }
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
         let (app, pool) = test_app().await;
         let owner = create_owner(&app, "reminder-test").await;
         let receipt_token = owner["receiptToken"].as_str().unwrap();
         let practice_id = owner["practice"]["id"].as_str().unwrap();
+        sqlx::query("UPDATE practices SET delivery_webhook_url = ? WHERE id = ?")
+            .bind(format!("http://{address}/send"))
+            .bind(practice_id)
+            .execute(&pool)
+            .await
+            .unwrap();
         let (_, attempt) = send(
             &app,
             "POST",
@@ -1503,18 +1602,131 @@ mod tests {
             assert_eq!(value["duplicate"], duplicate);
         }
 
-        let reminders: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM practice_scheduled_jobs \
-             WHERE attempt_id = ? AND kind = 'session_reminder' AND status = 'queued'",
-        )
-        .bind(attempt_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        sqlx::query("UPDATE practice_scheduled_jobs SET due_at = 1 WHERE attempt_id = ? AND kind = 'session_reminder'")
+            .bind(attempt_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let state = scheduler_state(pool.clone());
+        super::run_due_jobs(&state, 2).await.unwrap();
+        super::run_due_jobs(&state, 2).await.unwrap();
         assert_eq!(
-            reminders, 1,
-            "a verified deposit queues one durable reminder"
+            hits.load(Ordering::SeqCst),
+            1,
+            "the due reminder reaches the delivery provider once"
         );
+        let status: String = sqlx::query_scalar("SELECT status FROM practice_scheduled_jobs WHERE attempt_id = ? AND kind = 'session_reminder'")
+            .bind(attempt_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "sent");
+        let detail: String = sqlx::query_scalar("SELECT detail FROM practice_delivery_events WHERE attempt_id = ? ORDER BY occurred_at DESC LIMIT 1")
+            .bind(attempt_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(detail.contains("automatic session reminder"));
+    }
+
+    #[tokio::test]
+    async fn unsupported_owner_delivery_urls_are_rejected_before_any_server_request() {
+        let (app, _) = test_app().await;
+        let (status, body) = send(&app, "POST", "/api/v1/practices", json!({
+            "name":"North Star Coaching", "publicSlug":"blocked-delivery", "timezone":"Europe/London",
+            "serviceName":"Focus session", "durationMinutes":45, "depositCents":3500,
+            "currency":"GBP", "paymentUrl":"https://pay.example/session",
+            "deliveryWebhookUrl":"https://169.254.169.254/latest/meta-data"
+        }), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"], "unsupported_delivery_provider");
+    }
+
+    #[tokio::test]
+    async fn delete_is_rate_limited_with_a_positive_retry_after() {
+        let (app, _) = test_app().await;
+        let owner = create_owner(&app, "delete-rate-test").await;
+        let token = owner["accessToken"].as_str().unwrap();
+        let mut limited = None;
+        for _ in 0..45 {
+            let request = Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/practice")
+                .header("authorization", format!("Bearer {token}"))
+                .header("x-forwarded-for", "198.51.100.194")
+                .body(Body::empty())
+                .unwrap();
+            let response = app.clone().oneshot(request).await.unwrap();
+            if response.status() == StatusCode::TOO_MANY_REQUESTS {
+                limited = Some(response);
+                break;
+            }
+        }
+        let response = limited.expect("DELETE must not be whitelisted from the API limiter");
+        assert!(response
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok())
+            .is_some_and(|v| v >= 1));
+    }
+
+    #[tokio::test]
+    async fn shared_durable_store_prevents_the_verifier_cross_replica_read_and_delete_split() {
+        let database_path = std::env::temp_dir().join(format!(
+            "booking-recovery-shared-replica-{}.db",
+            Uuid::now_v7()
+        ));
+        let database_url = format!("sqlite://{}?mode=rwc", database_path.display());
+        sqlx::any::install_default_drivers();
+        let first_pool = AnyPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        migrations::up(&first_pool).await.unwrap();
+        let second_pool = AnyPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        let first = app_router(first_pool.clone(), "replica-one", "../dist");
+        let second = app_router(second_pool.clone(), "replica-two", "../dist");
+
+        let owner = create_owner(&first, "shared-replica-practice").await;
+        let token = owner["accessToken"].as_str().unwrap();
+        let (read_status, view) =
+            send(&second, "GET", "/api/v1/practice", json!({}), Some(token)).await;
+        assert_eq!(
+            read_status,
+            StatusCode::OK,
+            "a different replica must read the created practice"
+        );
+        assert_eq!(view["publicSlug"], "shared-replica-practice");
+        let (delete_status, _) = send(
+            &second,
+            "DELETE",
+            "/api/v1/practice",
+            json!({}),
+            Some(token),
+        )
+        .await;
+        assert_eq!(
+            delete_status,
+            StatusCode::NO_CONTENT,
+            "a different replica must delete the same practice"
+        );
+        let (after_delete, _) =
+            send(&first, "GET", "/api/v1/practice", json!({}), Some(token)).await;
+        assert_eq!(
+            after_delete,
+            StatusCode::UNAUTHORIZED,
+            "deletion must be visible to every replica"
+        );
+
+        first_pool.close().await;
+        second_pool.close().await;
+        let _ = std::fs::remove_file(database_path);
     }
 
     #[tokio::test]

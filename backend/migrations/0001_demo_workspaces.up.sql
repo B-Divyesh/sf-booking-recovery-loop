@@ -1,5 +1,3 @@
-PRAGMA foreign_keys = ON;
-
 CREATE TABLE demo_workspaces (
     id TEXT PRIMARY KEY NOT NULL,
     token_hash TEXT NOT NULL UNIQUE,

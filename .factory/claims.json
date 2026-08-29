@@ -84,6 +84,13 @@
     "sandbox": "An isolated database creates two practices, stores a real-looking booking, proves raw name/email columns do not contain plaintext, decrypts them only for the owner, and proves the other practice sees no attempt."
   },
   {
+    "id": "shared-practice-storage",
+    "claim": "A practice read and deletion are consistent across service replicas.",
+    "where": "README operations section",
+    "test": "cargo test --manifest-path backend/Cargo.toml shared_durable_store_prevents_the_verifier_cross_replica_read_and_delete_split",
+    "sandbox": "Two independent API routers connect to one durable database file. One creates a practice, the other reads and deletes it, and the first immediately observes that deletion."
+  },
+  {
     "id": "export-delete",
     "claim": "A practice owner can export its records and delete the complete practice.",
     "where": "Data controls, privacy page, README",
@@ -127,10 +134,10 @@
   },
   {
     "id": "automatic-reminder",
-    "claim": "A verified deposit queues one durable session reminder.",
+    "claim": "A verified deposit sends one durable session reminder when it is due.",
     "where": "README product workflow and recovery queue",
-    "test": "cargo test --manifest-path backend/Cargo.toml automatic_reminder_is_queued_once_after_verified_deposit",
-    "sandbox": "An isolated payment callback accepts one authenticated paid event and asserts the database contains exactly one queued session-reminder job."
+    "test": "cargo test --manifest-path backend/Cargo.toml automatic_reminder_is_delivered_once_when_due_after_verified_deposit",
+    "sandbox": "An isolated payment callback accepts one authenticated paid event, advances its durable session-reminder job to due, runs the scheduler twice, and observes exactly one provider delivery plus a sent receipt."
   },
   {
     "id": "practice-data-inventory",

@@ -289,8 +289,8 @@ function startContent(): string {
         <p id="payment-help" class="field-help">Paste the secure payment page you already use. The booking form has no card fields.</p>
       </fieldset>
       <fieldset><legend>Delivery connection</legend>
-        <label>Delivery connection URL<input name="deliveryWebhookUrl" type="url" inputmode="url" required placeholder="https://messages.your-practice.example/send" aria-describedby="delivery-help"></label>
-        <p id="delivery-help" class="field-help">Paste your delivery provider’s send URL. After setup, send a test message before relying on automatic recovery.</p>
+        <label>Delivery service<select name="deliveryWebhookUrl" required aria-describedby="delivery-help"><option value="resend">Resend email delivery</option></select></label>
+        <p id="delivery-help" class="field-help">Connect the supported delivery service in your practice settings. Booking Recovery Loop never sends client data to an owner-entered URL.</p>
       </fieldset>
       <button class="button button-primary" type="submit">Create practice workspace</button>
     </form>
@@ -351,7 +351,7 @@ function privacyContent(): string {
       <section><h2>What the demo stores</h2><p>Your browser keeps one random demo token under <code>demo:workspace-token</code>.</p><p>The server keeps the matching sample workspace for up to 24 hours.</p></section>
       <section><h2>What the demo does not contact</h2><p>Demo actions do not call payment, messaging, sign-in, billing, or AI services.</p><p>The simulated receipt comes from this product’s own server.</p></section>
       <section><h2>How to remove the sample</h2><p>Reset demo makes the current workspace inaccessible and creates a fresh one.</p><p>Start for real removes the browser token. The inaccessible server copy expires automatically.</p></section>
-      <section><h2>What a practice stores</h2><p>The service stores practice settings, booking attempts, email or SMS consent, scheduled messages, and delivery receipts.</p><p>Client names, email addresses, and phone numbers are encrypted before database storage.</p><p>The booking form has no card fields. Payment card details stay on the practice’s hosted payment page.</p></section>
+      <section><h2>What a practice stores</h2><p>The service stores practice settings, booking attempts, email or SMS consent, scheduled messages, and delivery receipts.</p><p>Client names, email addresses, and phone numbers are encrypted before database storage.</p><p>When a permitted message is due, the service sends the selected contact field and message text to the supported delivery provider. That provider controls its own retention.</p><p>The booking form has no card fields. Payment card details stay on the practice’s hosted payment page.</p></section>
       <section><h2>Export and deletion</h2><p>A practice owner can export its records or delete the full practice from the data controls page.</p></section>
       <div class="button-row"><a class="button button-primary" href="/demo">Open the sample workspace</a><a class="button button-secondary" href="/app/settings/data">Open data controls</a></div>
     </article>`;

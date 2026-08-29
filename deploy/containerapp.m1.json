@@ -1,9 +1,19 @@
 {
   "artifactClass": "web-with-backend",
   "containerPort": 8080,
+  "database": {
+    "engine": "postgresql",
+    "connectionStringEnv": "DATABASE_URL",
+    "connectionStringSecret": "sociobot-db-runtime-url",
+    "schema": "booking_recovery_loop",
+    "backup": "managed PostgreSQL point-in-time restore plus encrypted owner export"
+  },
+  "secrets": {
+    "CONTACT_ENCRYPTION_KEY": "booking-recovery-loop-contact-encryption-key"
+  },
   "scale": {
     "minReplicas": 1,
-    "maxReplicas": 1
+    "maxReplicas": 3
   },
-  "reason": "The release uses one migration-managed SQLite store, one persisted contact-encryption key, and process-local rate buckets. Keep one ingress-routed replica so owner data, callbacks, and the 12-write boundary remain service-wide."
+  "reason": "Production uses the shared PostgreSQL database and a shared contact-encryption secret. Multiple replicas therefore read, delete, schedule, and rate-limit against the same durable customer-data boundary; SQLite remains local-only for no-env development and tests."
 }

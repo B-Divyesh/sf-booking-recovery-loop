@@ -172,7 +172,7 @@ test("@claim:practice-publish creates a private workspace and public page", asyn
   await page.goto("/start");
   await page.getByLabel("Booking link").fill(slug);
   await page.getByLabel("Hosted deposit URL").fill("https://payments.example.test/session");
-  await page.getByLabel("Delivery connection URL").fill("https://messages.example.test/send");
+  await page.getByLabel("Delivery service").selectOption("resend");
   await page.getByRole("button", { name: "Create practice workspace" }).click();
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByRole("heading", { name: "Review bookings that need action" })).toBeVisible();

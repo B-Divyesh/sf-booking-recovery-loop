@@ -9,10 +9,16 @@ if (config.artifactClass !== "web-with-backend") {
 if (config.containerPort !== 8080) {
   throw new Error("The deployment must expose port 8080.");
 }
-if (config.scale?.minReplicas !== 1 || config.scale?.maxReplicas !== 1) {
+if (config.scale?.minReplicas !== 1 || config.scale?.maxReplicas < 2) {
   throw new Error(
-    "M1 must stay on one replica so its local per-client limiter is service-wide.",
+    "Production must allow a second replica only when the storage boundary is shared.",
   );
 }
+if (config.database?.engine !== "postgresql" || config.database?.connectionStringEnv !== "DATABASE_URL") {
+  throw new Error("Production must use the shared PostgreSQL DATABASE_URL contract.");
+}
+if (!config.database?.backup || !config.secrets?.CONTACT_ENCRYPTION_KEY) {
+  throw new Error("Production needs a backup/restore plan and a shared contact encryption key.");
+}
 
-console.log("M1 deployment boundary: one ingress-routed replica on port 8080");
+console.log("Production deployment boundary: shared PostgreSQL, shared contact key, and multi-replica-safe API");

@@ -41,7 +41,7 @@ const slug = `live-check-${Date.now()}`;
 await page.getByLabel("Practice name").fill("Live Verification Practice");
 await page.getByLabel("Booking link").fill(slug);
 await page.getByLabel("Hosted deposit URL").fill("https://payments.example.test/session");
-await page.getByLabel("Delivery connection URL").fill("https://messages.example.test/send");
+await page.getByLabel("Delivery service").selectOption("resend");
 await page.getByRole("button", { name: "Create practice workspace" }).click();
 await page.waitForURL(`${baseURL}/app`);
 checks.practiceCreated = await page.getByRole("heading", { name: "Review bookings that need action" }).isVisible();

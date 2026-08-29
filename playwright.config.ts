@@ -24,7 +24,7 @@ export default defineConfig({
     url: "http://127.0.0.1:4173",
     env: {
       PORT: "4173",
-      DATABASE_URL: "sqlite://booking-recovery-loop-e2e.db",
+      DATABASE_URL: "sqlite://booking-recovery-loop-e2e-v2.db?mode=rwc",
       STATIC_DIR: "dist"
     },
     reuseExistingServer: !process.env.CI,
