@@ -1,0 +1,11 @@
+HTTP/2 200 
+content-type: application/json
+x-content-type-options: nosniff
+referrer-policy: strict-origin-when-cross-origin
+x-frame-options: DENY
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'
+x-request-id: 29bc7d2a-cea2-4fab-99ce-ce5779a93192
+content-length: 70
+date: Sat, 29 Aug 2026 01:18:59 GMT
+

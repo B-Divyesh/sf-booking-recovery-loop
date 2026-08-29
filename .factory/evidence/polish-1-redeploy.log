@@ -1,0 +1,15 @@
+== container app name: sf-booking-recovery-loop (slug booking-recovery-loop)
+== acr build sf-booking-recovery-loop:e504d7f743c6
+  git: {}
+
+Run ID: chrh was successful after 4m56s
+== container app sf-booking-recovery-loop
+   app: InProgress
+   app: InProgress
+   fqdn sf-booking-recovery-loop.orangepond-1638693f.eastus2.azurecontainerapps.io
+== dns
+== register hostname on the app (required before a managed certificate can be issued)
+== managed certificate + binding
+   cert: Succeeded
+   https://booking-recovery-loop.sociobot.in -> 000
+   https://booking-recovery-loop.sociobot.in -> 200

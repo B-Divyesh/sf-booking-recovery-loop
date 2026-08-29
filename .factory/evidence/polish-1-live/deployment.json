@@ -1,0 +1,5 @@
+{
+  "image": "sociobotregistry.azurecr.io/sf-booking-recovery-loop:e504d7f743c6",
+  "max": 1,
+  "min": 1
+}
