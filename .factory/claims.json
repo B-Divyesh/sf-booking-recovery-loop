@@ -9,14 +9,14 @@
   {
     "id": "demo-lifetime",
     "claim": "Demo tokens use 256 random bits and sample workspaces expire after 24 hours.",
-    "where": "README, privacy page, demo documentation",
+    "where": "Privacy page and demo documentation",
     "test": "cargo test --manifest-path backend/Cargo.toml portable_token_has_256_random_bits_and_24_hour_expiry",
     "sandbox": "Generates and parses a token, decodes 32 random bytes, checks the exact 24-hour TTL, and rejects an expired token."
   },
   {
     "id": "forwarded-rate-limit",
     "claim": "Demo writes allow 12 immediate requests per first forwarded client IP, then return a retry time of at least one second.",
-    "where": "README and terms",
+    "where": "Terms and API response headers",
     "test": "cargo test --manifest-path backend/Cargo.toml write_limit_uses_forwarded_ip_and_returns_retry_after",
     "sandbox": "An isolated router sends 13 writes from one X-Forwarded-For address, asserts the first 12 advertise limit 12, and asserts the thirteenth returns 429 with matching positive Retry-After headers while another forwarded client remains allowed."
   },
@@ -54,5 +54,61 @@
     "where": "Demo banner and privacy page",
     "test": "npm run test:e2e -- --grep @claim:demo-no-external-requests",
     "sandbox": "Playwright records every request for the full fresh-demo flow and asserts each URL is same-origin; no request is made to Stripe, a messaging provider, Entra, Sociobot billing, or the AI gateway."
+  },
+  {
+    "id": "sample-three-bookings",
+    "claim": "The one-click sample opens three fictional bookings.",
+    "where": "Landing first screen and README",
+    "test": "npm run test:e2e -- --grep @claim:sample-three-bookings",
+    "sandbox": "A fresh browser enters through /?demo=1, sees the persistent demo banner, and observes exactly three named sample booking tickets."
+  },
+  {
+    "id": "practice-publish",
+    "claim": "A practice can create a private workspace and publish one paid-session page.",
+    "where": "Landing, practice setup, README",
+    "test": "npm run test:e2e -- --grep @claim:practice-publish",
+    "sandbox": "A fresh browser creates a practice, receives a private access token, opens its recovery queue, follows its unique public URL, and observes the configured session and deposit."
+  },
+  {
+    "id": "booking-consent-record",
+    "claim": "A booking records channel consent before opening hosted payment.",
+    "where": "Public booking page, privacy page, README",
+    "test": "npm run test:e2e -- --grep @claim:booking-consent-record",
+    "sandbox": "A clean practice receives a public booking with explicit email consent, the browser opens only its configured hosted payment URL, and the owner API shows the timestamped consent and awaiting-deposit state."
+  },
+  {
+    "id": "encrypted-tenant-data",
+    "claim": "Client contact fields are encrypted at rest and stay inside their practice.",
+    "where": "Privacy page and README",
+    "test": "cargo test --manifest-path backend/Cargo.toml production_contacts_are_encrypted_and_tenant_scoped",
+    "sandbox": "An isolated database creates two practices, stores a real-looking booking, proves raw name/email columns do not contain plaintext, decrypts them only for the owner, and proves the other practice sees no attempt."
+  },
+  {
+    "id": "export-delete",
+    "claim": "A practice owner can export its records and delete the complete practice.",
+    "where": "Data controls, privacy page, README",
+    "test": "cargo test --manifest-path backend/Cargo.toml export_and_delete_cover_the_complete_practice_record",
+    "sandbox": "An isolated practice downloads its JSON export, deletes through the authenticated endpoint, then proves the database has no practice and the old key no longer opens it."
+  },
+  {
+    "id": "delivery-fallback-receipts",
+    "claim": "A permitted recovery records provider status, and one email bounce can trigger one permitted SMS fallback.",
+    "where": "Recovery queue, terms, README",
+    "test": "cargo test --manifest-path backend/Cargo.toml delivery_acceptance_bounce_fallback_and_receipts_are_idempotent",
+    "sandbox": "An isolated practice connects an in-process provider, sends one consented email, records an authenticated bounce receipt twice, and proves exactly one SMS fallback plus an auditable event timeline."
+  },
+  {
+    "id": "verified-deposit",
+    "claim": "A hosted payment return does not mark a deposit paid; only an authenticated provider event does.",
+    "where": "Booking completion page, terms, README",
+    "test": "cargo test --manifest-path backend/Cargo.toml hosted_payment_requires_verified_callback_and_is_idempotent",
+    "sandbox": "An isolated booking starts awaiting deposit, rejects an invalid callback token, accepts one authenticated paid event twice without duplication, and then shows paid in the owner record."
+  },
+  {
+    "id": "no-double-booking",
+    "claim": "An occupied session time cannot be booked twice.",
+    "where": "Public booking page and README",
+    "test": "cargo test --manifest-path backend/Cargo.toml occupied_slot_cannot_be_double_booked",
+    "sandbox": "Two clients submit the same future time for one practice; the first succeeds, the second receives slot_unavailable, and one database record remains."
   }
 ]

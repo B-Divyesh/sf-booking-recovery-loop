@@ -1,4 +1,4 @@
-# Demo sandbox — M1 implementation
+# Demo sandbox
 
 ## Entry and seed
 
@@ -37,11 +37,10 @@ marker to `recovered`, so a later replica recreates the simulated receipt too.
 The token never identifies or authorizes a real workspace. A three-database
 API test covers create, recover, and reload across separate replicas.
 
-The M1 database is SQLite because the deployed container receives no database
-configuration and stores no real customer data. Migration
+The demo uses dedicated SQLite tables and routes. Real practice records use
+separate tables, owner tokens, and encrypted contact fields. Migration
 `0001_demo_workspaces.up.sql` is tracked and safe to rerun. Its matching down
-migration removes the schema. M2 introduces the planned shared PostgreSQL
-customer store before production practice data exists.
+migration removes the demo schema.
 
 ## Recovery flow
 
@@ -66,8 +65,7 @@ removes the browser token. Inaccessible server copies expire after 24 hours.
 The API routes are limited by client IP. The first `X-Forwarded-For` hop is
 used behind factory ingress. Write routes allow 12 immediate requests per
 client, restore one request every 60 seconds, and then return `429` with a
-whole-second `Retry-After` value of at least 1. M1 runs one ingress-routed
-replica, so this is the service-wide boundary rather than a per-replica claim.
+whole-second `Retry-After` value of at least 1.
 
 ## External-service boundary
 

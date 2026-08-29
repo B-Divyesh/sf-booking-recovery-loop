@@ -37,19 +37,36 @@ pub(crate) struct AppState {
     pub(crate) build_sha: Arc<str>,
     pub(crate) pool: SqlitePool,
     pub(crate) demo_lock: Arc<Mutex<()>>,
+    pub(crate) encryption_key: Arc<[u8; 32]>,
+    pub(crate) http: reqwest::Client,
     static_dir: Arc<PathBuf>,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn app_router(
     pool: SqlitePool,
     build_sha: impl Into<Arc<str>>,
     static_dir: impl Into<PathBuf>,
+) -> Router {
+    app_router_with_key(pool, build_sha, static_dir, [7_u8; 32])
+}
+
+pub(crate) fn app_router_with_key(
+    pool: SqlitePool,
+    build_sha: impl Into<Arc<str>>,
+    static_dir: impl Into<PathBuf>,
+    encryption_key: [u8; 32],
 ) -> Router {
     let static_dir = static_dir.into();
     let state = AppState {
         build_sha: build_sha.into(),
         pool,
         demo_lock: Arc::new(Mutex::new(())),
+        encryption_key: Arc::new(encryption_key),
+        http: reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .expect("HTTP client configuration is valid"),
         static_dir: Arc::new(static_dir.clone()),
     };
 
@@ -84,12 +101,38 @@ pub(crate) fn app_router(
             "/attempts/{attempt_id}/recover",
             post(routes::demo::recover),
         )
-        .layer(GovernorLayer::new(write_limit).error_handler(write_limit_error));
+        .layer(GovernorLayer::new(write_limit.clone()).error_handler(write_limit_error));
 
     let read_routes = Router::new()
         .route("/workspace", get(routes::demo::show))
-        .layer(GovernorLayer::new(general_limit));
+        .layer(GovernorLayer::new(general_limit.clone()));
     let demo_api = read_routes.merge(write_routes);
+
+    let practice_write_routes = Router::new()
+        .route("/practices", post(routes::practice::create))
+        .route(
+            "/public/{slug}/attempts",
+            post(routes::practice::create_attempt),
+        )
+        .route(
+            "/practice/attempts/{attempt_id}/recover",
+            post(routes::practice::recover),
+        )
+        .route(
+            "/provider/{practice_id}/receipts",
+            post(routes::practice::receipt),
+        )
+        .route(
+            "/provider/{practice_id}/payments",
+            post(routes::practice::payment),
+        )
+        .route("/practice", axum::routing::delete(routes::practice::delete))
+        .layer(GovernorLayer::new(write_limit.clone()).error_handler(write_limit_error));
+    let practice_read_routes = Router::new()
+        .route("/practice", get(routes::practice::show))
+        .route("/practice/export", get(routes::practice::export))
+        .route("/public/{slug}", get(routes::practice::public_show))
+        .layer(GovernorLayer::new(general_limit.clone()));
 
     let immutable_assets = Router::new()
         .nest_service("/assets", ServeDir::new(static_dir.join("assets")))
@@ -102,6 +145,7 @@ pub(crate) fn app_router(
     Router::new()
         .route("/health", get(routes::health::handler))
         .nest("/api/v1/demo", demo_api)
+        .nest("/api/v1", practice_read_routes.merge(practice_write_routes))
         .merge(immutable_assets)
         .route_service("/robots.txt", ServeFile::new(static_dir.join("robots.txt")))
         .route_service("/sitemap.xml", ServeFile::new(static_dir.join("sitemap.xml")))
@@ -118,6 +162,11 @@ pub(crate) fn app_router(
         .route("/demo", get(spa_index))
         .route("/privacy", get(spa_index))
         .route("/terms", get(spa_index))
+        .route("/start", get(spa_index))
+        .route("/app", get(spa_index))
+        .route("/app/settings/data", get(spa_index))
+        .route("/b/{slug}", get(spa_index))
+        .route("/b/{slug}/complete", get(spa_index))
         .route("/404", get(spa_index))
         .fallback(not_found)
         .with_state(state)
@@ -250,14 +299,17 @@ async fn main() {
         .await
         .expect("the demo database migration must apply");
 
+    let key_path = env::var("CONTACT_KEY_FILE").unwrap_or_else(|_| "/data/contact.key".to_owned());
+    let (encryption_key, key_source) = load_or_create_key(std::path::Path::new(&key_path)).await;
     let address = SocketAddr::from(([0, 0, 0, 0], port));
     let build_sha = env!("BUILD_SHA");
     info!(
         port,
         port_source,
         database_source,
+        key_source,
         build_sha,
-        "configuration loaded; no secret configuration is required for M1"
+        "configuration loaded; contact encryption key is persisted without logging its value"
     );
 
     let listener = tokio::net::TcpListener::bind(address)
@@ -267,11 +319,31 @@ async fn main() {
 
     axum::serve(
         listener,
-        app_router(pool, build_sha, static_dir).into_make_service_with_connect_info::<SocketAddr>(),
+        app_router_with_key(pool, build_sha, static_dir, encryption_key)
+            .into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
     .await
     .expect("the API server should shut down cleanly");
+}
+
+async fn load_or_create_key(path: &std::path::Path) -> ([u8; 32], &'static str) {
+    if let Ok(bytes) = tokio::fs::read(path).await {
+        if let Ok(key) = <[u8; 32]>::try_from(bytes.as_slice()) {
+            return (key, "persisted");
+        }
+    }
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .expect("contact key directory must be writable");
+    }
+    let mut key = [0_u8; 32];
+    getrandom::fill(&mut key).expect("operating system random source must be available");
+    tokio::fs::write(path, key)
+        .await
+        .expect("contact encryption key must be persisted");
+    (key, "generated")
 }
 
 async fn shutdown_signal() {

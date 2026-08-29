@@ -2,10 +2,13 @@ use sqlx::{Executor, SqlitePool};
 
 const UP_1: &str = include_str!("../migrations/0001_demo_workspaces.up.sql");
 const UP_2: &str = include_str!("../migrations/0002_demo_token_aliases.up.sql");
+const UP_3: &str = include_str!("../migrations/0003_practice_workflow.up.sql");
 #[cfg(test)]
 const DOWN_1: &str = include_str!("../migrations/0001_demo_workspaces.down.sql");
 #[cfg(test)]
 const DOWN_2: &str = include_str!("../migrations/0002_demo_token_aliases.down.sql");
+#[cfg(test)]
+const DOWN_3: &str = include_str!("../migrations/0003_practice_workflow.down.sql");
 
 pub(crate) async fn up(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let mut transaction = pool.begin().await?;
@@ -15,7 +18,7 @@ pub(crate) async fn up(pool: &SqlitePool) -> Result<(), sqlx::Error> {
              version INTEGER PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
         )
         .await?;
-    for (version, sql) in [(1_i64, UP_1), (2_i64, UP_2)] {
+    for (version, sql) in [(1_i64, UP_1), (2_i64, UP_2), (3_i64, UP_3)] {
         let applied: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM brl_schema_migrations WHERE version = ?")
                 .bind(version)
@@ -39,6 +42,7 @@ pub(crate) async fn up(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 #[cfg(test)]
 pub(crate) async fn down(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let mut transaction = pool.begin().await?;
+    transaction.execute(DOWN_3).await?;
     transaction.execute(DOWN_2).await?;
     transaction.execute(DOWN_1).await?;
     transaction

@@ -193,5 +193,15 @@ These components share the tokens above and must expose semantic states:
 The frontend is Vite + strict TypeScript + vanilla CSS rather than React. The
 interface has focused state and benefits from a small, deliberate component
 layer, lower first-load JavaScript, and direct control of the appointment-rail
-layout. The backend is Rust/axum/Postgres because multi-tenant contact,
-payment, and delayed-message state needs strong server boundaries.
+layout. The backend is Rust/axum with a migration-managed SQLite store in this
+single-service release. Owner-token scoping and encrypted contact columns keep
+the product boundary explicit.
+
+## Polish 1 product extension
+
+The real setup, public session page, recovery queue, and data controls keep the
+same twilight rail system. Forms use cove fieldsets and slate inputs; they do
+not introduce a second dashboard style. Public session details use one amber-
+edged ticket, while provider events reuse the rail receipt timeline. At 390 px,
+navigation becomes a two-column row, form groups stack, and every action spans
+the available width. No new imagery or third-party asset was added.

@@ -59,7 +59,7 @@ test("@claim:demo-no-account-payment opens without account or payment", async ({
   const requests: string[] = [];
   page.on("request", (request) => requests.push(request.url()));
   await page.goto("/");
-  await expect(page.getByText("No account needed")).toBeVisible();
+  await expect(page.getByText("Demo needs no account")).toBeVisible();
   await page.getByRole("link", { name: "Try it with sample data" }).click();
   await expect(page.locator('[data-action="select-attempt"]')).toHaveCount(3);
   expect(requests.some((url) => /login|checkout|payment/i.test(url))).toBe(false);
@@ -126,4 +126,49 @@ test("@claim:demo-no-external-requests keeps the full demo flow same-origin", as
   const networkUrls = requestUrls.filter((url) => url.startsWith("http"));
   expect(networkUrls.length).toBeGreaterThan(0);
   expect(networkUrls.every((url) => new URL(url).origin === expectedOrigin)).toBe(true);
+});
+
+test("@claim:sample-three-bookings opens one-click sample data", async ({ page }) => {
+  await page.goto("/?demo=1");
+  await expect(page.getByText("Demo — sample data, nothing is saved")).toBeVisible();
+  await expect(page.locator('[data-action="select-attempt"]')).toHaveCount(3);
+  await expect(ticketFor(page, "Maya Patel")).toContainText("Needs a follow-up");
+});
+
+test("@claim:practice-publish creates a private workspace and public page", async ({ page }) => {
+  const slug = `claim-practice-${Date.now()}`;
+  await page.goto("/start");
+  await page.getByLabel("Booking link").fill(slug);
+  await page.getByRole("button", { name: "Create practice workspace" }).click();
+  await expect(page).toHaveURL(/\/app$/);
+  await expect(page.getByRole("heading", { name: "Review bookings that need action" })).toBeVisible();
+  const token = await page.evaluate((key) => localStorage.getItem(key), "practice:access-token");
+  expect(token).toMatch(/^owner_/);
+  await page.getByRole("link", { name: "Open public booking page" }).click();
+  await expect(page).toHaveURL(new RegExp(`/b/${slug}$`));
+  await expect(page.getByRole("heading", { name: "Finish your paid session booking" })).toBeVisible();
+  await expect(page.getByText("45-minute focus session")).toBeVisible();
+});
+
+test("@claim:booking-consent-record saves consent before hosted payment", async ({ page, request }) => {
+  const slug = `claim-booking-${Date.now()}`;
+  const clientIp = `198.51.100.${Math.floor(Math.random() * 100) + 100}`;
+  const created = await request.post("/api/v1/practices", { headers: { "X-Forwarded-For": clientIp }, data: {
+    name: "North Star Coaching", publicSlug: slug, timezone: "Europe/London", serviceName: "45-minute focus session",
+    durationMinutes: 45, depositCents: 3500, currency: "GBP", paymentUrl: "https://example.com/hosted-payment", deliveryWebhookUrl: ""
+  }});
+  expect(created.status()).toBe(201);
+  const owner = await created.json();
+  await page.route("https://example.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<title>Hosted payment</title><h1>Hosted payment</h1>" }));
+  await page.goto(`/b/${slug}`);
+  await page.getByLabel("Your name").fill("Taylor Reed");
+  await page.getByLabel("Email address").fill("taylor@example.test");
+  await page.getByLabel("Email me about this booking").check();
+  await page.getByRole("button", { name: "Save booking and open payment" }).click();
+  await expect(page).toHaveURL("https://example.com/hosted-payment");
+  const practiceResponse = await request.get("/api/v1/practice", { headers: { Authorization: `Bearer ${owner.accessToken}`, "X-Forwarded-For": clientIp } });
+  const practice = await practiceResponse.json();
+  expect(practice.attempts).toHaveLength(1);
+  expect(practice.attempts[0]).toMatchObject({ clientName: "Taylor Reed", emailConsent: true, smsConsent: false, state: "awaiting_deposit" });
+  expect(practice.attempts[0].consentRecordedAt).toMatch(/Z$/);
 });

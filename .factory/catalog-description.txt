@@ -1,0 +1,1 @@
+Recover paid bookings with recorded consent and delivery receipts.

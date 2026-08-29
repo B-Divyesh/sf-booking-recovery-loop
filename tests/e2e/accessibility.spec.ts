@@ -10,6 +10,9 @@ test.beforeEach(async ({ page }, testInfo) => {
 const routes = [
   ["/", "Booking Recovery Loop — recover paid sessions"],
   ["/demo", "Demo — Booking Recovery Loop"],
+  ["/start", "Start a practice — Booking Recovery Loop"],
+  ["/app", "Recovery queue — Booking Recovery Loop"],
+  ["/app/settings/data", "Data controls — Booking Recovery Loop"],
   ["/privacy", "Privacy — Booking Recovery Loop"],
   ["/terms", "Terms — Booking Recovery Loop"],
   ["/missing-page", "Page not found — Booking Recovery Loop"]
@@ -101,6 +104,34 @@ test("security response policy and offline error state are explicit", async ({ p
   await context.setOffline(true);
   await page.getByRole("link", { name: "Try it with sample data" }).click();
   await expect(page.getByRole("heading", { name: "The demo is offline" })).toBeVisible();
+});
+
+test("history navigation restores the route and focuses its heading", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "Set up", exact: true }).click();
+  await expect(page).toHaveURL(/\/start$/);
+  await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
+});
+
+test("public booking page is accessible and reflows at 390px", async ({ page, request }, testInfo) => {
+  const slug = `a11y-booking-${Date.now()}`;
+  const ip = `203.0.113.${testInfo.workerIndex + 120}`;
+  const created = await request.post("/api/v1/practices", { headers: { "X-Forwarded-For": ip }, data: {
+    name: "North Star Coaching", publicSlug: slug, timezone: "Europe/London", serviceName: "Focus session",
+    durationMinutes: 45, depositCents: 3500, currency: "GBP", paymentUrl: "https://example.com/pay", deliveryWebhookUrl: ""
+  }});
+  expect(created.status()).toBe(201);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/b/${slug}`);
+  await expect(page.getByRole("heading", { name: "Finish your paid session booking" })).toBeVisible();
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations.filter((item) => ["serious", "critical"].includes(item.impact ?? ""))).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  const button = await page.getByRole("button", { name: "Save booking and open payment" }).boundingBox();
+  expect(button?.height).toBeGreaterThanOrEqual(44);
 });
 
 async function openDemo(page: import("@playwright/test").Page) {

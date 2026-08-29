@@ -5,5 +5,5 @@
     "minReplicas": 1,
     "maxReplicas": 1
   },
-  "reason": "M1 uses an intentionally local SQLite demo store and process-local per-client rate buckets. One ingress-routed replica makes the published 12-write boundary service-wide. M2 must replace both with shared infrastructure before scaling out."
+  "reason": "The release uses one migration-managed SQLite store, one persisted contact-encryption key, and process-local rate buckets. Keep one ingress-routed replica so owner data, callbacks, and the 12-write boundary remain service-wide."
 }

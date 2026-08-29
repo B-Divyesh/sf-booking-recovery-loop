@@ -1033,6 +1033,30 @@ code {
   border: 0;
 }
 
+.real-start { margin: 0 0 var(--space-6); }
+
+.button-danger { border-color: var(--color-rose); background: transparent; color: var(--color-rose); }
+
+.setup-page, .booking-page, .policy-page { width: min(100%, 48rem); margin-inline: auto; }
+.setup-form, .booking-form, .access-form { display: grid; gap: var(--space-6); margin-top: var(--space-8); }
+.setup-form fieldset, .booking-form fieldset { display: grid; gap: var(--space-4); margin: 0; padding: var(--space-6); border: 1px solid var(--color-rail); border-radius: var(--radius-md); background: var(--color-cove); }
+.setup-form legend, .booking-form legend { padding-inline: var(--space-2); color: var(--color-paper); font-family: var(--font-display); font-size: 1.25rem; font-weight: 650; }
+.setup-form label, .booking-form label, .access-form label { display: grid; gap: var(--space-2); color: var(--color-paper); font-weight: 720; }
+.setup-form label span, .booking-form label span { color: var(--color-mist); font-weight: 500; }
+input { width: 100%; min-height: 2.875rem; padding: var(--space-3); border: 1px solid var(--color-rail); border-radius: var(--radius-sm); background: var(--color-slate); color: var(--color-paper); }
+input:focus-visible { outline: 3px solid var(--color-sky); outline-offset: 2px; }
+.field-prefix, .field-help, .action-note { margin: 0; color: var(--color-mist); font-size: 0.875rem; font-weight: 500; overflow-wrap: anywhere; }
+.check-label { display: flex !important; align-items: center; min-height: 2.75rem; }
+.check-label input { width: 1.35rem; min-height: 1.35rem; }
+.practice-heading { display: flex; align-items: end; justify-content: space-between; gap: var(--space-8); margin-bottom: var(--space-12); }
+.practice-board > h2 { margin-bottom: var(--space-6); }
+.practice-attempts { display: grid; gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
+.practice-attempts article, .service-ticket { padding: var(--space-6); border: 1px solid var(--color-rail); border-radius: var(--radius-md); background: var(--color-cove); }
+.attempt-top, .service-ticket { display: flex; align-items: start; justify-content: space-between; gap: var(--space-4); }
+.service-ticket { margin-block: var(--space-8); border-color: var(--color-amber); }
+.notice-error { border-color: var(--color-rose); }
+.service-summary dd, code { overflow-wrap: anywhere; word-break: break-word; }
+
 @media (max-width: 64rem) {
   .hero {
     grid-template-columns: 1fr 0.9fr;
@@ -1102,6 +1126,26 @@ code {
   .policy-page > .button,
   .not-found-page .button {
     width: 100%;
+  }
+
+  .practice-heading,
+  .attempt-top,
+  .service-ticket {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .practice-heading .button,
+  .setup-form > .button,
+  .booking-form > .button,
+  .access-form .button {
+    width: 100%;
+  }
+
+  .setup-form fieldset,
+  .booking-form fieldset,
+  .practice-attempts article {
+    padding: var(--space-4);
   }
 
   .preview-board {
@@ -1193,7 +1237,8 @@ code {
 @media (max-width: 28rem) {
   nav {
     align-items: stretch;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   nav a {

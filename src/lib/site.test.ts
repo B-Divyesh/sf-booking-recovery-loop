@@ -13,6 +13,13 @@ describe("site routes and metadata", () => {
     expect(pageFor("/terms").title).toBe("Terms — Booking Recovery Loop");
   });
 
+  it("maps real practice and public booking URLs", () => {
+    expect(routeFor("/start")).toBe("start");
+    expect(routeFor("/app/settings/data")).toBe("data");
+    expect(routeFor("/b/north-star")).toBe("booking");
+    expect(routeFor("/b/north-star/complete")).toBe("complete");
+  });
+
   it("gives unknown paths a usable not-found page", () => {
     expect(routeFor("/missing")).toBe("not-found");
     expect(pageFor("/missing").heading).toBe("That page is not here");
