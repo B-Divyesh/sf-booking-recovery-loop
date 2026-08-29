@@ -19,19 +19,30 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] }
     }
   ],
-  webServer: {
-    command: "npm run test:server",
-    url: "http://127.0.0.1:4173",
-    env: {
-      PORT: "4173",
-      DATABASE_URL: "sqlite://booking-recovery-loop-e2e-v2.db?mode=rwc",
-      STATIC_DIR: "dist",
-      TEST_ENTRA_OID: "playwright-sociobot-entra-user"
+  webServer: [
+    {
+      command: "node tests/fixtures/integration-server.mjs",
+      url: "http://127.0.0.1:4174/health",
+      env: { INTEGRATION_FIXTURE_PORT: "4174" },
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000
     },
-    reuseExistingServer: !process.env.CI,
-    // A clean Rust toolchain can spend several minutes compiling sqlx. Claims
-    // are required to pass from a cold clone, so the harness must wait for the
-    // product rather than timing out while it is still building.
-    timeout: 360_000
-  }
+    {
+      command: "npm run test:server",
+      url: "http://127.0.0.1:4173",
+      env: {
+        PORT: "4173",
+        DATABASE_URL: "sqlite://booking-recovery-loop-e2e-v3.db?mode=rwc",
+        STATIC_DIR: "dist",
+        TEST_ENTRA_OID: "playwright-sociobot-entra-user",
+        SOCIOBOT_BILLING_BASE_URL: "http://127.0.0.1:4174",
+        SOCIOBOT_BOOKING_PRODUCT_SLUG: "booking-recovery-loop-deposit"
+      },
+      reuseExistingServer: !process.env.CI,
+      // A clean Rust toolchain can spend several minutes compiling sqlx. Claims
+      // are required to pass from a cold clone, so the harness must wait for the
+      // product rather than timing out while it is still building.
+      timeout: 360_000
+    }
+  ]
 });

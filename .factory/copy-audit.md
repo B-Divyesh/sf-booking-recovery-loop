@@ -29,7 +29,8 @@ No item contains a banned marketing word.
 | 4 | Create a practice workspace | Pass |
 | 10 | Recovery Loop Practice is $29 per month for one practice. | Pass |
 | 13 | Publish one session page, record email or SMS consent, and review delivery receipts. | Pass |
-| 15 | Checkout is not available yet. You can create a workspace and test the delivery connection now. | Pass; exact current state. |
+| 17 | The hosted checkout starts the $29 monthly practice subscription. Sign in to create the workspace after checkout. | Pass |
+| 3 | Start Recovery Loop Practice | Pass |
 | 4 | Set up your practice | Pass |
 
 Read-aloud result: the first breath states the job, audience, and sample action.

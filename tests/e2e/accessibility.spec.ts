@@ -130,7 +130,7 @@ test("public booking page is accessible and reflows at 390px", async ({ page, re
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations.filter((item) => ["serious", "critical"].includes(item.impact ?? ""))).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  const button = await page.getByRole("button", { name: "Save booking and open payment" }).boundingBox();
+  const button = await page.getByRole("button", { name: "Save booking and open secure checkout" }).boundingBox();
   expect(button?.height).toBeGreaterThanOrEqual(44);
 });
 

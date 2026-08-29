@@ -10,16 +10,17 @@ Try the isolated sample at
 
 1. Sign in with Sociobot Entra External ID, then create a practice at `/start`.
 2. Publish its `/b/<slug>` booking page and record the client’s consent.
-3. Review the resulting recovery records and export or delete the practice data.
+3. Each booking receives a server-created Sociobot/Dodo hosted checkout.
+4. Review recovery records and export or delete the practice data.
 
 Recovery Loop Practice is $29/month for one practice. The product links to the
 registered Sociobot/Dodo hosted checkout. Subscription entitlement state is
 stored server-side; the browser never receives a billing secret.
 
-Live email/SMS delivery is deliberately unavailable in this deployment because
-no credentialed provider adapter has been provisioned. The product does not
-offer a fake Resend connection or claim that a recovery was sent. The isolated
-demo continues to show a simulated receipt without contacting a provider.
+When configured, live email/SMS delivery uses a server-owned provider adapter. It sends only
+after channel consent, authenticates requests with a bearer credential, checks
+callback bodies with HMAC-SHA256, stores durable receipts, and permits one SMS
+fallback after an email bounce. The isolated demo remains simulated.
 
 The demo has separate sample storage. It sends no real messages or payments.
 Every product promise above is listed with its executable evidence in
@@ -48,6 +49,18 @@ The API validates Entra discovery, issuer, JWKS/RS256 signature, audience,
 tenant, expiry, and stable `oid` before it opens an owner workspace. Local
 integration fixtures may use an isolated loopback delivery endpoint only with
 `ALLOW_UNSAFE_TEST_DELIVERY_URLS=1`.
+
+Configure live delivery with `DELIVERY_PROVIDER_URL`,
+`DELIVERY_PROVIDER_TOKEN`, and `DELIVERY_CALLBACK_SECRET`. The approved relay
+signs callbacks as `X-Provider-Signature: sha256=<HMAC-SHA256(raw body)>`.
+Set `PUBLIC_BASE_URL` to the public origin. Booking checkout uses
+`SOCIOBOT_BILLING_BASE_URL` (default `https://api.sociobot.in/api/v1`) and
+`SOCIOBOT_BOOKING_PRODUCT_SLUG` (the dedicated booking-deposit product, not the
+practice subscription). The browser receives no billing credential.
+
+The service fails closed when either integration is absent: it does not accept
+a booking without a dedicated deposit checkout, and it does not mark a message
+sent without the complete delivery credential set.
 
 ## Verify
 

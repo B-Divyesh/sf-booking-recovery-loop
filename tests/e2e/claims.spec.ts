@@ -154,14 +154,14 @@ test("@claim:card-data-excluded has no card fields before hosted payment", async
   page.on("request", (request) => {
     if (request.url().includes(`/api/v1/public/${slug}/attempts`)) submitted = request.postDataJSON() as Record<string, unknown>;
   });
-  await page.route("https://example.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<title>Hosted payment</title><h1>Hosted payment</h1>" }));
+  await page.route("https://checkout.dodopayments.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<title>Hosted payment</title><h1>Hosted payment</h1>" }));
   await page.goto(`/b/${slug}`);
   await expect(page.locator('input[name*="card" i], input[autocomplete^="cc-"]')).toHaveCount(0);
   await page.getByLabel("Your name").fill("Taylor Reed");
   await page.getByLabel("Email address").fill("taylor@example.test");
   await page.getByLabel("I give email consent for this booking").check();
-  await page.getByRole("button", { name: "Save booking and open payment" }).click();
-  await expect(page).toHaveURL("https://example.com/hosted-payment");
+  await page.getByRole("button", { name: "Save booking and open secure checkout" }).click();
+  await expect(page).toHaveURL(/^https:\/\/checkout\.dodopayments\.com\/session\//);
   expect(submitted).not.toBeNull();
   expect(Object.keys(submitted ?? {}).some((key) => /card|pan|cvc|cvv|expiry/i.test(key))).toBe(false);
 });
@@ -191,16 +191,31 @@ test("@claim:booking-consent-record saves consent before hosted payment", async 
   }});
   expect(created.status()).toBe(201);
   await created.json();
-  await page.route("https://example.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<title>Hosted payment</title><h1>Hosted payment</h1>" }));
+  await page.route("https://checkout.dodopayments.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<title>Hosted payment</title><h1>Hosted payment</h1>" }));
   await page.goto(`/b/${slug}`);
   await page.getByLabel("Your name").fill("Taylor Reed");
   await page.getByLabel("Email address").fill("taylor@example.test");
   await page.getByLabel("I give email consent for this booking").check();
-  await page.getByRole("button", { name: "Save booking and open payment" }).click();
-  await expect(page).toHaveURL("https://example.com/hosted-payment");
+  await page.getByRole("button", { name: "Save booking and open secure checkout" }).click();
+  await expect(page).toHaveURL(/^https:\/\/checkout\.dodopayments\.com\/session\//);
   const practiceResponse = await request.get("/api/v1/practice", { headers: { "X-Test-Oid": testOwner, "X-Forwarded-For": clientIp } });
   const practice = await practiceResponse.json();
   expect(practice.attempts).toHaveLength(1);
   expect(practice.attempts[0]).toMatchObject({ clientName: "Taylor Reed", emailConsent: true, smsConsent: false, state: "awaiting_deposit" });
   expect(practice.attempts[0].consentRecordedAt).toMatch(/Z$/);
+});
+
+test("booking return strips the license and verifies it through the server", async ({ page }) => {
+  let completionBody: Record<string, unknown> | null = null;
+  await page.route("**/api/v1/public/attempts/attempt-return-test/payments/complete", async (route) => {
+    completionBody = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ recorded: true, duplicate: false }) });
+  });
+  await page.goto("/");
+  await page.evaluate((key) => sessionStorage.setItem(key, JSON.stringify({ attemptId: "attempt-return-test", slug: "north-star" })), "booking-recovery-loop:pending-booking");
+  await page.goto("/?license=signed-license-token-that-must-not-remain-in-url");
+  await expect(page).toHaveURL(/\/b\/north-star\/complete\?attempt=attempt-return-test$/);
+  await expect(page.getByRole("heading", { name: "Your deposit is confirmed" })).toBeVisible();
+  expect(completionBody).toEqual({ license: "signed-license-token-that-must-not-remain-in-url" });
+  expect(await page.evaluate(() => sessionStorage.getItem("booking-recovery-loop:pending-booking"))).toBeNull();
 });

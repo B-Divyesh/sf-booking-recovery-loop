@@ -3,6 +3,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use axum::{
+    body::Bytes,
     extract::{Path, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
@@ -10,6 +11,7 @@ use axum::{
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, SecondsFormat, Utc};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -31,8 +33,6 @@ pub(crate) struct CreatePractice {
     duration_minutes: i64,
     deposit_cents: i64,
     currency: String,
-    payment_url: String,
-    delivery_webhook_url: String,
 }
 
 #[derive(Deserialize)]
@@ -59,10 +59,20 @@ pub(crate) struct ReceiptInput {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PaymentInput {
-    attempt_id: String,
-    provider_event_id: String,
-    status: String,
+pub(crate) struct CompletePaymentInput {
+    license: String,
+}
+
+#[derive(Deserialize)]
+struct BillingCheckoutResponse {
+    checkout_url: String,
+    intent_id: String,
+}
+
+#[derive(Deserialize)]
+struct BillingVerifyResponse {
+    valid: bool,
+    reason: String,
 }
 
 #[derive(Serialize)]
@@ -86,8 +96,8 @@ pub(crate) struct PracticeView {
     duration_minutes: i64,
     deposit_cents: i64,
     currency: String,
-    payment_url: String,
-    delivery_webhook_url: String,
+    checkout_provider: &'static str,
+    delivery_connected: bool,
     attempts: Vec<AttemptView>,
 }
 
@@ -101,7 +111,7 @@ pub(crate) struct PublicPractice {
     duration_minutes: i64,
     deposit_cents: i64,
     currency: String,
-    payment_url: String,
+    checkout_provider: &'static str,
     consent_wording: &'static str,
 }
 
@@ -120,6 +130,17 @@ struct AttemptView {
     consent_recorded_at: String,
     events: Vec<EventView>,
     scheduled_jobs: Vec<ScheduledJobView>,
+    payment: Option<PaymentSessionView>,
+}
+
+#[derive(Serialize, FromRow)]
+#[serde(rename_all = "camelCase")]
+struct PaymentSessionView {
+    provider: String,
+    provider_intent_id: String,
+    status: String,
+    created_at: i64,
+    verified_at: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -166,7 +187,6 @@ struct PracticeRow {
     duration_minutes: i64,
     deposit_cents: i64,
     currency: String,
-    payment_url: String,
     delivery_webhook_url: String,
 }
 
@@ -189,7 +209,7 @@ pub(crate) async fn create(
     headers: HeaderMap,
     Json(input): Json<CreatePractice>,
 ) -> Result<(StatusCode, Json<CreatedPractice>), ApiError> {
-    validate_practice(&input, state.allow_test_delivery_urls)?;
+    validate_practice(&input)?;
     let owner_oid = owner_oid(&state, &headers).await?;
     let legacy_storage_token = random_token("retired")?;
     let receipt_token = random_token("receipt")?;
@@ -210,8 +230,11 @@ pub(crate) async fn create(
     .bind(input.duration_minutes)
     .bind(input.deposit_cents)
     .bind(input.currency.trim().to_uppercase())
-    .bind(input.payment_url.trim())
-    .bind(input.delivery_webhook_url.trim())
+    // Legacy columns stay empty so existing databases can migrate without a
+    // destructive table rewrite. Production destinations now come only from
+    // the server-owned integration configuration.
+    .bind("")
+    .bind("")
     .bind(Utc::now().timestamp())
     .execute(&state.pool)
     .await
@@ -262,8 +285,23 @@ pub(crate) async fn public_show(
         duration_minutes: row.duration_minutes,
         deposit_cents: row.deposit_cents,
         currency: row.currency,
-        payment_url: row.payment_url,
+        checkout_provider: "Sociobot / Dodo",
         consent_wording: CONSENT_WORDING,
+    }))
+}
+
+pub(crate) async fn integration_status(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({
+        "delivery": {
+            "configured": state.integrations.delivery_ready(),
+            "requestAuthentication": "bearer",
+            "callbackAuthentication": "hmac-sha256"
+        },
+        "billing": {
+            "configured": !state.integrations.billing_product_slug.is_empty(),
+            "provider": "sociobot_dodo",
+            "productSlug": state.integrations.billing_product_slug
+        }
     }))
 }
 
@@ -311,11 +349,49 @@ pub(crate) async fn create_attempt(
     sqlx::query("INSERT INTO practice_scheduled_jobs (id, practice_id, attempt_id, kind, due_at, created_at) VALUES ($1, $2, $3, 'abandoned_recovery', $4, $5)")
         .bind(Uuid::now_v7().to_string()).bind(&practice.id).bind(&id)
         .bind(now + 15 * 60).bind(now).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
+    let (checkout_url, intent_id) =
+        match create_owned_checkout(&state, &practice, &id, input.email.as_deref()).await {
+            Ok(checkout) => checkout,
+            Err(error) => {
+                // The attempt and queued recovery form one product action with its
+                // hosted checkout. Do not strand an occupied slot when billing is
+                // unavailable; the client can safely submit again.
+                sqlx::query("DELETE FROM practice_attempts WHERE id = $1 AND practice_id = $2")
+                    .bind(&id)
+                    .bind(&practice.id)
+                    .execute(&state.pool)
+                    .await
+                    .map_err(|_| ApiError::internal())?;
+                return Err(error);
+            }
+        };
+    let payment_session = sqlx::query(
+        "INSERT INTO practice_payment_sessions (id, practice_id, attempt_id, provider, provider_intent_id, checkout_url, status, created_at) \
+         VALUES ($1, $2, $3, 'sociobot_dodo', $4, $5, 'pending', $6)",
+    )
+    .bind(Uuid::now_v7().to_string())
+    .bind(&practice.id)
+    .bind(&id)
+    .bind(&intent_id)
+    .bind(&checkout_url)
+    .bind(now)
+    .execute(&state.pool)
+    .await;
+    if payment_session.is_err() {
+        sqlx::query("DELETE FROM practice_attempts WHERE id = $1 AND practice_id = $2")
+            .bind(&id)
+            .bind(&practice.id)
+            .execute(&state.pool)
+            .await
+            .map_err(|_| ApiError::internal())?;
+        return Err(ApiError::internal());
+    }
     Ok((
         StatusCode::CREATED,
         Json(json!({
             "attemptId": id,
-            "paymentUrl": practice.payment_url,
+            "checkoutUrl": checkout_url,
+            "checkoutIntentId": intent_id,
             "status": "awaiting_deposit"
         })),
     ))
@@ -355,15 +431,20 @@ pub(crate) async fn test_delivery_connection(
 ) -> Result<Json<Value>, ApiError> {
     let owner_oid = owner_oid(&state, &headers).await?;
     let practice = practice_row_by_owner(&state, &owner_oid).await?;
-    if practice.delivery_webhook_url.is_empty() {
+    if !state.integrations.delivery_ready() && practice.delivery_webhook_url.is_empty() {
         return Err(ApiError::conflict(
             "delivery_not_connected",
-            "Add a delivery connection URL before sending a test message.",
+            "The server delivery provider is not configured.",
         ));
     }
     let response = state
         .http
         .post(delivery_target(&state, &practice.delivery_webhook_url)?)
+        .header("authorization", delivery_authorization(&state)?)
+        .header(
+            "idempotency-key",
+            format!("connection-test:{}", practice.id),
+        )
         .json(&json!({
             "type": "connection_test",
             "practice": practice.name,
@@ -434,7 +515,7 @@ async fn deliver_scheduled_job(
     attempt_id: &str,
     kind: &str,
 ) -> Result<(), ApiError> {
-    let practice: PracticeRow = sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url FROM practices WHERE id = $1 AND deletion_requested_at IS NULL")
+    let practice: PracticeRow = sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, delivery_webhook_url FROM practices WHERE id = $1 AND deletion_requested_at IS NULL")
         .bind(practice_id).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?.ok_or_else(ApiError::not_found)?;
     let attempt: AttemptRow = sqlx::query_as("SELECT id, client_name_encrypted, email_encrypted, phone_encrypted, scheduled_for, state, email_consent, sms_consent, consent_wording, consent_recorded_at FROM practice_attempts WHERE id = $1 AND practice_id = $2")
         .bind(attempt_id).bind(practice_id).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?.ok_or_else(ApiError::not_found)?;
@@ -465,7 +546,7 @@ async fn deliver_attempt(
     purpose: &str,
 ) -> Result<String, ApiError> {
     let channel = preferred_channel(attempt)?;
-    if practice.delivery_webhook_url.is_empty() {
+    if !state.integrations.delivery_ready() && practice.delivery_webhook_url.is_empty() {
         return Err(ApiError::conflict(
             "delivery_not_connected",
             "Automatic delivery is waiting for a delivery connection.",
@@ -476,11 +557,15 @@ async fn deliver_attempt(
     } else {
         decrypt_optional(state, attempt.phone_encrypted.as_deref())?
     };
-    let response = state.http.post(delivery_target(state, &practice.delivery_webhook_url)?).json(&json!({
+    let idempotency_key = format!("{}:{}:{}", attempt.id, purpose.replace(' ', "-"), channel);
+    let response = state.http.post(delivery_target(state, &practice.delivery_webhook_url)?)
+        .header("authorization", delivery_authorization(state)?)
+        .header("idempotency-key", &idempotency_key)
+        .json(&json!({
         "attemptId": attempt.id, "channel": channel, "to": target,
         "template": if purpose.contains("reminder") { "Your session reminder" } else { "Complete your booking" },
         "purpose": purpose, "replyToPractice": practice.name,
-        "receiptCallback": format!("/api/v1/provider/{}/receipts", practice.id)
+        "receiptCallback": format!("{}/api/v1/provider/{}/receipts", state.integrations.public_base_url.trim_end_matches('/'), practice.id)
     })).send().await.map_err(|_| ApiError::bad_gateway("delivery_unavailable", "The delivery service did not answer. Nothing was marked as sent."))?;
     if !response.status().is_success() {
         return Err(ApiError::bad_gateway(
@@ -488,7 +573,13 @@ async fn deliver_attempt(
             "The delivery service rejected the message. Check the connection and try again.",
         ));
     }
-    let event_id = Uuid::now_v7().to_string();
+    let event_id = response
+        .headers()
+        .get("x-provider-message-id")
+        .and_then(|value| value.to_str().ok())
+        .map(clean_detail)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(idempotency_key);
     sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES ($1, $2, $3, $4, 'accepted', $5, $6, $7) ON CONFLICT DO NOTHING")
         .bind(Uuid::now_v7().to_string()).bind(&practice.id).bind(&attempt.id).bind(channel)
         .bind(format!("Delivery service accepted the {purpose}.")).bind(&event_id).bind(Utc::now().timestamp())
@@ -521,17 +612,12 @@ pub(crate) async fn receipt(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(practice_id): Path<String>,
-    Json(input): Json<ReceiptInput>,
+    body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    let token = headers
-        .get("x-receipt-token")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(ApiError::unauthorized)?;
-    let valid: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM practices WHERE id = $1 AND receipt_token_hash = $2 AND deletion_requested_at IS NULL")
-        .bind(&practice_id).bind(hash(token)).fetch_one(&state.pool).await.map_err(|_| ApiError::internal())?;
-    if valid != 1 {
-        return Err(ApiError::unauthorized());
-    }
+    authenticate_provider_callback(&state, &headers, &practice_id, &body).await?;
+    let input: ReceiptInput = serde_json::from_slice(&body).map_err(|_| {
+        ApiError::bad_request("invalid_receipt", "Send a valid JSON delivery receipt.")
+    })?;
     if !matches!(input.channel.as_str(), "email" | "sms")
         || !matches!(
             input.status.as_str(),
@@ -551,6 +637,20 @@ pub(crate) async fn receipt(
         .map_err(|_| ApiError::bad_request("invalid_time", "Use an RFC 3339 receipt time."))?
         .map(|v| v.timestamp())
         .unwrap_or_else(|| Utc::now().timestamp());
+    let payload_digest = hash(std::str::from_utf8(&body).unwrap_or("invalid-utf8"));
+    let callback = sqlx::query("INSERT INTO provider_callback_receipts (provider_event_id, practice_id, payload_digest, authenticated_at) SELECT $1, id, $2, $3 FROM practices WHERE id = $4 AND deletion_requested_at IS NULL ON CONFLICT DO NOTHING")
+        .bind(&input.provider_event_id).bind(&payload_digest).bind(Utc::now().timestamp()).bind(&practice_id)
+        .execute(&state.pool).await.map_err(|_| ApiError::internal())?;
+    if callback.rows_affected() == 0 {
+        let existing: Option<String> = sqlx::query_scalar("SELECT payload_digest FROM provider_callback_receipts WHERE provider_event_id = $1 AND practice_id = $2")
+            .bind(&input.provider_event_id).bind(&practice_id).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?;
+        if existing.as_deref() != Some(payload_digest.as_str()) {
+            return Err(ApiError::conflict(
+                "callback_replay_mismatch",
+                "That provider event ID was already used with different data.",
+            ));
+        }
+    }
     let inserted = sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) SELECT $1, $2, id, $3, $4, $5, $6, $7 FROM practice_attempts WHERE id = $8 AND practice_id = $9 ON CONFLICT DO NOTHING")
         .bind(Uuid::now_v7().to_string()).bind(&practice_id).bind(&input.channel).bind(&input.status).bind(clean_detail(&input.detail)).bind(&input.provider_event_id).bind(occurred).bind(&input.attempt_id).bind(&practice_id)
         .execute(&state.pool).await.map_err(|_| ApiError::internal())?;
@@ -580,16 +680,23 @@ pub(crate) async fn receipt(
         let fallback: Option<(String, String, String)> = sqlx::query_as(
             "SELECT a.phone_encrypted, p.delivery_webhook_url, p.name FROM practice_attempts a \
              JOIN practices p ON p.id = a.practice_id WHERE a.id = $1 AND a.practice_id = $2 \
-             AND a.sms_consent = 1 AND a.phone_encrypted IS NOT NULL AND p.delivery_webhook_url <> ''",
-        ).bind(&input.attempt_id).bind(&practice_id).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?;
-        if let Some((phone, webhook, practice_name)) = fallback {
+             AND a.sms_consent = 1 AND a.phone_encrypted IS NOT NULL",
+        )
+        .bind(&input.attempt_id)
+        .bind(&practice_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| ApiError::internal())?;
+        if let Some((phone, test_webhook, practice_name)) = fallback {
             let response = state
                 .http
-                .post(delivery_target(&state, &webhook)?)
+                .post(delivery_target(&state, &test_webhook)?)
+                .header("authorization", delivery_authorization(&state)?)
+                .header("idempotency-key", format!("{}:email-bounce:sms", input.attempt_id))
                 .json(&json!({
                     "attemptId": input.attempt_id, "channel": "sms", "to": decrypt(&state, &phone)?,
                     "template": "Complete your booking", "replyToPractice": practice_name,
-                    "receiptCallback": format!("/api/v1/provider/{}/receipts", practice_id)
+                    "receiptCallback": format!("{}/api/v1/provider/{}/receipts", state.integrations.public_base_url.trim_end_matches('/'), practice_id)
                 }))
                 .send()
                 .await;
@@ -605,63 +712,75 @@ pub(crate) async fn receipt(
     ))
 }
 
-pub(crate) async fn payment(
+pub(crate) async fn complete_payment(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(practice_id): Path<String>,
-    Json(input): Json<PaymentInput>,
+    Path(attempt_id): Path<String>,
+    Json(input): Json<CompletePaymentInput>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = headers
-        .get("x-receipt-token")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(ApiError::unauthorized)?;
-    let valid: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM practices WHERE id = $1 AND receipt_token_hash = $2 AND deletion_requested_at IS NULL")
-        .bind(&practice_id).bind(hash(token)).fetch_one(&state.pool).await.map_err(|_| ApiError::internal())?;
-    if valid != 1 {
-        return Err(ApiError::unauthorized());
-    }
-    if input.status != "paid" {
+    if input.license.len() < 20 || input.license.len() > 4096 {
         return Err(ApiError::bad_request(
             "invalid_payment",
-            "Only a verified paid event can confirm the deposit.",
+            "The hosted checkout completion token is not valid.",
         ));
     }
-    let result = sqlx::query("UPDATE practice_attempts SET state = 'paid', payment_reference = $1 WHERE id = $2 AND practice_id = $3 AND payment_reference IS NULL")
-        .bind(clean_detail(&input.provider_event_id)).bind(&input.attempt_id).bind(&practice_id).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
-    if result.rows_affected() == 0 {
-        let existing: Option<String> = sqlx::query_scalar(
-            "SELECT payment_reference FROM practice_attempts WHERE id = $1 AND practice_id = $2",
-        )
-        .bind(&input.attempt_id)
-        .bind(&practice_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| ApiError::internal())?;
-        return match existing {
-            Some(reference) if reference == input.provider_event_id => {
-                Ok(Json(json!({"recorded":true,"duplicate":true})))
-            }
-            Some(_) => Err(ApiError::conflict(
-                "payment_already_recorded",
-                "A different payment event already confirmed this booking.",
-            )),
-            None => Err(ApiError::not_found()),
-        };
+    let (practice_id, intent_id, status): (String, String, String) = sqlx::query_as(
+        "SELECT practice_id, provider_intent_id, status FROM practice_payment_sessions WHERE attempt_id = $1",
+    )
+    .bind(&attempt_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|_| ApiError::internal())?
+    .ok_or_else(ApiError::not_found)?;
+    if status == "paid" {
+        return Ok(Json(json!({"recorded":true,"duplicate":true})));
     }
+    let verification = verify_billing_license(&state, &input.license).await?;
+    if !verification.valid {
+        return Err(ApiError::bad_request(
+            "payment_not_verified",
+            format!(
+                "Sociobot did not verify this checkout: {}.",
+                clean_detail(&verification.reason)
+            ),
+        ));
+    }
+    let license_hash = hash(&input.license);
+    let now = Utc::now().timestamp();
+    let session = sqlx::query("UPDATE practice_payment_sessions SET status = 'paid', license_hash = $1, verified_at = $2 WHERE attempt_id = $3 AND status = 'pending'")
+        .bind(&license_hash).bind(now).bind(&attempt_id).execute(&state.pool).await;
+    let result = match session {
+        Ok(value) => value,
+        Err(error) if error.to_string().contains("UNIQUE") => {
+            return Err(ApiError::conflict(
+                "payment_token_used",
+                "That checkout completion was already used for another booking.",
+            ))
+        }
+        Err(_) => return Err(ApiError::internal()),
+    };
+    if result.rows_affected() != 1 {
+        return Err(ApiError::conflict(
+            "payment_already_recorded",
+            "This booking already has a payment result.",
+        ));
+    }
+    sqlx::query("UPDATE practice_attempts SET state = 'paid', payment_reference = $1 WHERE id = $2 AND practice_id = $3 AND payment_reference IS NULL")
+        .bind(&intent_id).bind(&attempt_id).bind(&practice_id).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
     let scheduled_for: i64 = sqlx::query_scalar(
         "SELECT scheduled_for FROM practice_attempts WHERE id = $1 AND practice_id = $2",
     )
-    .bind(&input.attempt_id)
+    .bind(&attempt_id)
     .bind(&practice_id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| ApiError::internal())?;
-    let now = Utc::now().timestamp();
     sqlx::query("INSERT INTO practice_scheduled_jobs (id, practice_id, attempt_id, kind, due_at, created_at) VALUES ($1, $2, $3, 'session_reminder', $4, $5) ON CONFLICT DO NOTHING")
-        .bind(Uuid::now_v7().to_string()).bind(&practice_id).bind(&input.attempt_id)
+        .bind(Uuid::now_v7().to_string()).bind(&practice_id).bind(&attempt_id)
         .bind((scheduled_for - 24 * 60 * 60).max(now)).bind(now)
         .execute(&state.pool).await.map_err(|_| ApiError::internal())?;
-    Ok(Json(json!({"recorded":true,"duplicate":false})))
+    Ok(Json(
+        json!({"recorded":true,"duplicate":false,"provider":"sociobot_dodo"}),
+    ))
 }
 
 pub(crate) async fn export(
@@ -729,6 +848,13 @@ async fn load_practice(state: &AppState, owner_oid: &str) -> Result<PracticeView
                 last_error: job.last_error,
             })
             .collect();
+        let payment = sqlx::query_as::<_, PaymentSessionView>(
+            "SELECT provider, provider_intent_id, status, created_at, verified_at FROM practice_payment_sessions WHERE attempt_id = $1",
+        )
+        .bind(&attempt.id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| ApiError::internal())?;
         views.push(AttemptView {
             id: attempt.id,
             client_name: decrypt(state, &attempt.client_name_encrypted)?,
@@ -742,6 +868,7 @@ async fn load_practice(state: &AppState, owner_oid: &str) -> Result<PracticeView
             consent_recorded_at: timestamp(attempt.consent_recorded_at),
             events,
             scheduled_jobs,
+            payment,
         });
     }
     Ok(PracticeView {
@@ -753,26 +880,23 @@ async fn load_practice(state: &AppState, owner_oid: &str) -> Result<PracticeView
         duration_minutes: row.duration_minutes,
         deposit_cents: row.deposit_cents,
         currency: row.currency,
-        payment_url: row.payment_url,
-        delivery_webhook_url: row.delivery_webhook_url,
+        checkout_provider: "Sociobot / Dodo",
+        delivery_connected: state.integrations.delivery_ready(),
         attempts: views,
     })
 }
 
 async fn practice_row_by_owner(state: &AppState, owner_oid: &str) -> Result<PracticeRow, ApiError> {
-    sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url FROM practices WHERE owner_oid = $1 AND deletion_requested_at IS NULL")
+    sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, delivery_webhook_url FROM practices WHERE owner_oid = $1 AND deletion_requested_at IS NULL")
         .bind(owner_oid).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?.ok_or_else(ApiError::unauthorized)
 }
 
 async fn public_practice(state: &AppState, slug: &str) -> Result<PracticeRow, ApiError> {
-    sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url FROM practices WHERE public_slug = $1 AND deletion_requested_at IS NULL")
+    sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, delivery_webhook_url FROM practices WHERE public_slug = $1 AND deletion_requested_at IS NULL")
         .bind(slug).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?.ok_or_else(ApiError::not_found)
 }
 
-fn validate_practice(
-    input: &CreatePractice,
-    allow_test_delivery_urls: bool,
-) -> Result<(), ApiError> {
+fn validate_practice(input: &CreatePractice) -> Result<(), ApiError> {
     if input.name.trim().len() < 2
         || input.name.len() > 80
         || input.service_name.trim().len() < 2
@@ -804,29 +928,205 @@ fn validate_practice(
             "Check the duration, deposit, and three-letter currency.",
         ));
     }
-    validate_https(&input.payment_url, "payment")?;
-    if !input.delivery_webhook_url.is_empty()
-        && !(allow_test_delivery_urls && is_loopback_test_url(&input.delivery_webhook_url))
-    {
-        return Err(ApiError::bad_request(
-            "unsupported_delivery_provider",
-            "Live delivery is not configured for this deployment.",
+    Ok(())
+}
+
+async fn create_owned_checkout(
+    state: &AppState,
+    practice: &PracticeRow,
+    attempt_id: &str,
+    email: Option<&str>,
+) -> Result<(String, String), ApiError> {
+    if cfg!(test) && state.integrations.billing_base_url == "https://api.sociobot.in/api/v1" {
+        return Ok((
+            format!("https://checkout.dodopayments.com/session/test-{attempt_id}"),
+            format!("test-intent-{attempt_id}"),
         ));
     }
-    Ok(())
+    let endpoint = format!(
+        "{}/products/{}/checkout",
+        state.integrations.billing_base_url.trim_end_matches('/'),
+        state.integrations.billing_product_slug
+    );
+    let return_url = format!(
+        "{}/b/{}/complete?attempt={attempt_id}",
+        state.integrations.public_base_url.trim_end_matches('/'),
+        practice.public_slug
+    );
+    let response = state
+        .http
+        .post(endpoint)
+        .json(&json!({
+            "email": email,
+            "reference": attempt_id,
+            "return_url": return_url,
+            "amount_cents": practice.deposit_cents,
+            "currency": practice.currency,
+            "description": format!("{} deposit", practice.service_name)
+        }))
+        .send()
+        .await
+        .map_err(|_| {
+            ApiError::bad_gateway(
+                "checkout_unavailable",
+                "Sociobot checkout did not answer. Nothing was booked; try again shortly.",
+            )
+        })?;
+    if !response.status().is_success() {
+        return Err(ApiError::bad_gateway(
+            "checkout_rejected",
+            "Sociobot checkout could not create this booking payment. Nothing was booked; try again.",
+        ));
+    }
+    let created: BillingCheckoutResponse = response.json().await.map_err(|_| {
+        ApiError::bad_gateway(
+            "checkout_invalid_response",
+            "Sociobot checkout returned an unreadable response. Nothing was booked; try again.",
+        )
+    })?;
+    let url = reqwest::Url::parse(&created.checkout_url).map_err(|_| {
+        ApiError::bad_gateway(
+            "checkout_invalid_response",
+            "Sociobot checkout returned an invalid payment address.",
+        )
+    })?;
+    let approved = url.scheme() == "https" && url.host_str() == Some("checkout.dodopayments.com");
+    let loopback_fixture =
+        state.allow_test_delivery_urls && is_loopback_test_url(&created.checkout_url);
+    if !approved && !loopback_fixture {
+        return Err(ApiError::bad_gateway(
+            "checkout_invalid_response",
+            "Sociobot checkout returned an unapproved payment address.",
+        ));
+    }
+    if created.intent_id.trim().is_empty() || created.intent_id.len() > 200 {
+        return Err(ApiError::bad_gateway(
+            "checkout_invalid_response",
+            "Sociobot checkout did not return a payment intent.",
+        ));
+    }
+    Ok((created.checkout_url, created.intent_id))
+}
+
+async fn verify_billing_license(
+    state: &AppState,
+    license: &str,
+) -> Result<BillingVerifyResponse, ApiError> {
+    if cfg!(test) && state.integrations.billing_base_url == "https://api.sociobot.in/api/v1" {
+        return Ok(BillingVerifyResponse {
+            valid: license.starts_with("test_valid_license_"),
+            reason: if license.starts_with("test_valid_license_") {
+                "ok"
+            } else {
+                "invalid"
+            }
+            .to_owned(),
+        });
+    }
+    let endpoint = format!(
+        "{}/products/{}/verify",
+        state.integrations.billing_base_url.trim_end_matches('/'),
+        state.integrations.billing_product_slug
+    );
+    let response = state
+        .http
+        .get(endpoint)
+        .query(&[("license", license)])
+        .send()
+        .await
+        .map_err(|_| {
+            ApiError::bad_gateway(
+                "payment_verification_unavailable",
+                "Sociobot could not verify this checkout. Try again shortly.",
+            )
+        })?;
+    if !response.status().is_success() {
+        return Err(ApiError::bad_gateway(
+            "payment_verification_unavailable",
+            "Sociobot could not verify this checkout. Try again shortly.",
+        ));
+    }
+    response.json().await.map_err(|_| {
+        ApiError::bad_gateway(
+            "payment_verification_unavailable",
+            "Sociobot returned an unreadable payment result. Try again shortly.",
+        )
+    })
+}
+
+async fn authenticate_provider_callback(
+    state: &AppState,
+    headers: &HeaderMap,
+    practice_id: &str,
+    body: &[u8],
+) -> Result<(), ApiError> {
+    if let Some(secret) = &state.integrations.delivery_callback_secret {
+        let supplied = headers
+            .get("x-provider-signature")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("sha256="))
+            .and_then(|value| hex::decode(value).ok())
+            .ok_or_else(ApiError::unauthorized)?;
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(secret.as_bytes())
+            .map_err(|_| ApiError::internal())?;
+        mac.update(body);
+        return mac
+            .verify_slice(&supplied)
+            .map_err(|_| ApiError::unauthorized());
+    }
+    // Compatibility exists only inside compiled test harnesses. Production
+    // never accepts the retired per-practice static callback token.
+    if state.allow_test_delivery_urls {
+        if let Some(token) = headers.get("x-receipt-token").and_then(|v| v.to_str().ok()) {
+            let valid: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM practices WHERE id = $1 AND receipt_token_hash = $2 AND deletion_requested_at IS NULL")
+                .bind(practice_id).bind(hash(token)).fetch_one(&state.pool).await.map_err(|_| ApiError::internal())?;
+            if valid == 1 {
+                return Ok(());
+            }
+        }
+    }
+    Err(ApiError::unauthorized())
 }
 
 /// Owner input is a provider identifier, never a destination URL. This keeps
 /// contact data out of an arbitrary server-side request path. The loopback
 /// exception is compiled into test-only harnesses and is guarded by an
 /// explicit environment opt-in for browser integration tests.
-fn delivery_target<'a>(state: &AppState, configured: &'a str) -> Result<&'a str, ApiError> {
-    match configured {
-        value if state.allow_test_delivery_urls && is_loopback_test_url(value) => Ok(value),
-        _ => Err(ApiError::conflict(
-            "delivery_not_connected",
-            "Live delivery is not configured for this deployment.",
-        )),
+fn delivery_target(state: &AppState, configured: &str) -> Result<String, ApiError> {
+    if let Some(url) = &state.integrations.delivery_url {
+        validate_delivery_provider_url(url, state.allow_test_delivery_urls)?;
+        return Ok(url.clone());
+    }
+    if state.allow_test_delivery_urls && is_loopback_test_url(configured) {
+        return Ok(configured.to_owned());
+    }
+    Err(ApiError::conflict(
+        "delivery_not_connected",
+        "Live delivery is not configured for this deployment.",
+    ))
+}
+
+fn delivery_authorization(state: &AppState) -> Result<String, ApiError> {
+    if let Some(token) = &state.integrations.delivery_bearer_token {
+        return Ok(format!("Bearer {token}"));
+    }
+    if state.allow_test_delivery_urls {
+        return Ok("Bearer test-provider-credential".to_owned());
+    }
+    Err(ApiError::conflict(
+        "delivery_not_connected",
+        "Live delivery credentials are not configured for this deployment.",
+    ))
+}
+
+fn validate_delivery_provider_url(value: &str, allow_loopback: bool) -> Result<(), ApiError> {
+    let url = reqwest::Url::parse(value).map_err(|_| ApiError::internal())?;
+    if (url.scheme() == "https" && url.host_str().is_some())
+        || (allow_loopback && is_loopback_test_url(value))
+    {
+        Ok(())
+    } else {
+        Err(ApiError::internal())
     }
 }
 
@@ -873,19 +1173,6 @@ fn validate_attempt(input: &CreateAttempt) -> Result<(), ApiError> {
         return Err(ApiError::bad_request(
             "consent_required",
             "Choose at least one contact channel to finish this booking.",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_https(value: &str, kind: &str) -> Result<(), ApiError> {
-    let url = reqwest::Url::parse(value).map_err(|_| {
-        ApiError::bad_request("invalid_url", format!("Enter a valid HTTPS {kind} URL."))
-    })?;
-    if url.scheme() != "https" || url.host_str().is_none() {
-        return Err(ApiError::bad_request(
-            "invalid_url",
-            format!("Enter a valid HTTPS {kind} URL."),
         ));
     }
     Ok(())
@@ -1029,12 +1316,14 @@ impl IntoResponse for ApiError {
 mod tests {
     use axum::{
         body::Body,
-        http::{Request, StatusCode},
+        http::{HeaderMap, Request, StatusCode},
         Json,
     };
     use chrono::Utc;
+    use hmac::{Hmac, Mac};
     use http_body_util::BodyExt;
     use serde_json::{json, Value};
+    use sha2::Sha256;
     use sqlx::{any::AnyPoolOptions, AnyPool};
     use std::{
         path::PathBuf,
@@ -1047,9 +1336,17 @@ mod tests {
     use tower::ServiceExt;
     use uuid::Uuid;
 
-    use crate::{app_router, migrations, AppState};
+    use crate::{
+        app_router, app_router_with_integrations, migrations, AppState, IntegrationConfig,
+    };
 
     async fn test_app() -> (axum::Router, AnyPool) {
+        test_app_with_integrations(IntegrationConfig::from_environment()).await
+    }
+
+    async fn test_app_with_integrations(
+        integrations: IntegrationConfig,
+    ) -> (axum::Router, AnyPool) {
         sqlx::any::install_default_drivers();
         let pool = AnyPoolOptions::new()
             .max_connections(1)
@@ -1057,7 +1354,10 @@ mod tests {
             .await
             .unwrap();
         migrations::up(&pool).await.unwrap();
-        (app_router(pool.clone(), "test", "../dist"), pool)
+        (
+            app_router_with_integrations(pool.clone(), "test", "../dist", [7_u8; 32], integrations),
+            pool,
+        )
     }
 
     async fn send(
@@ -1110,6 +1410,7 @@ mod tests {
             encryption_key: Arc::new([7_u8; 32]),
             http: reqwest::Client::new(),
             entra: crate::auth::EntraValidator::from_environment(reqwest::Client::new()),
+            integrations: Arc::new(IntegrationConfig::from_environment()),
             allow_test_delivery_urls: true,
             static_dir: Arc::new(PathBuf::new()),
         }
@@ -1306,8 +1607,8 @@ mod tests {
         for key in [
             "name",
             "serviceName",
-            "paymentUrl",
-            "deliveryWebhookUrl",
+            "checkoutProvider",
+            "deliveryConnected",
             "attempts",
         ] {
             assert!(
@@ -1328,6 +1629,10 @@ mod tests {
             record.get("events").is_some(),
             "export must include delivery receipts"
         );
+        assert!(
+            record.get("payment").is_some(),
+            "export must include the booking checkout intent"
+        );
     }
 
     #[tokio::test]
@@ -1347,7 +1652,10 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::CREATED);
-        assert_eq!(attempt["paymentUrl"], "https://pay.example/session");
+        assert!(attempt["checkoutUrl"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://checkout.dodopayments.com/session/"));
         let stored: (String, String) = sqlx::query_as(
             "SELECT client_name_encrypted, email_encrypted FROM practice_attempts LIMIT 1",
         )
@@ -1490,12 +1798,200 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn configured_delivery_and_sociobot_checkout_fix_the_release_blocker_end_to_end() {
+        let sends = Arc::new(AtomicUsize::new(0));
+        let checkout_payload = Arc::new(Mutex::new(None::<Value>));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let captured_checkout = checkout_payload.clone();
+        let send_count = sends.clone();
+        let fixture = axum::Router::new()
+            .route(
+                "/products/booking-recovery-loop-deposit/checkout",
+                axum::routing::post(move |headers: HeaderMap, Json(body): Json<Value>| {
+                    let captured_checkout = captured_checkout.clone();
+                    async move {
+                        assert_eq!(headers.get("content-type").unwrap(), "application/json");
+                        *captured_checkout.lock().await = Some(body);
+                        let reference = captured_checkout.lock().await.as_ref().unwrap()
+                            ["reference"]
+                            .as_str()
+                            .unwrap()
+                            .to_owned();
+                        Json(json!({
+                            "checkout_url": format!("http://{address}/hosted-checkout/{reference}"),
+                            "intent_id": format!("intent-{reference}")
+                        }))
+                    }
+                }),
+            )
+            .route(
+                "/products/booking-recovery-loop-deposit/verify",
+                axum::routing::get(|| async {
+                    Json(json!({"valid": true, "reason": "ok", "expires_at": null}))
+                }),
+            )
+            .route(
+                "/send",
+                axum::routing::post(move |headers: HeaderMap, Json(body): Json<Value>| {
+                    let send_count = send_count.clone();
+                    async move {
+                        assert_eq!(
+                            headers.get("authorization").unwrap(),
+                            "Bearer approved-provider-token"
+                        );
+                        assert!(matches!(body["channel"].as_str(), Some("email" | "sms")));
+                        send_count.fetch_add(1, Ordering::SeqCst);
+                        StatusCode::ACCEPTED
+                    }
+                }),
+            );
+        tokio::spawn(async move { axum::serve(listener, fixture).await.unwrap() });
+
+        let integrations = IntegrationConfig {
+            delivery_url: Some(format!("http://{address}/send")),
+            delivery_bearer_token: Some("approved-provider-token".to_owned()),
+            delivery_callback_secret: Some("callback-secret-held-by-provider".to_owned()),
+            billing_base_url: format!("http://{address}"),
+            billing_product_slug: "booking-recovery-loop-deposit".to_owned(),
+            public_base_url: "https://booking-recovery-loop.sociobot.in".to_owned(),
+        };
+        let (app, pool) = test_app_with_integrations(integrations).await;
+        let (status, integration_status) =
+            send(&app, "GET", "/api/v1/integrations/status", json!({}), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(integration_status["delivery"]["configured"], true);
+        assert_eq!(integration_status["billing"]["provider"], "sociobot_dodo");
+        let owner = create_owner(&app, "release-blocker-regression").await;
+        assert_eq!(owner["practice"]["deliveryConnected"], true);
+        let owner_token = owner["accessToken"].as_str().unwrap();
+        let practice_id = owner["practice"]["id"].as_str().unwrap();
+        let (_, attempt) = send(
+            &app,
+            "POST",
+            "/api/v1/public/release-blocker-regression/attempts",
+            json!({
+                "clientName":"Maya Patel", "email":"maya@example.test", "phone":"+447700900123",
+                "scheduledFor":"2030-05-10T12:00:00Z", "emailConsent":true, "smsConsent":true
+            }),
+            None,
+        )
+        .await;
+        let attempt_id = attempt["attemptId"].as_str().unwrap();
+        assert_eq!(attempt["checkoutIntentId"], format!("intent-{attempt_id}"));
+        assert_eq!(
+            attempt["checkoutUrl"],
+            format!("http://{address}/hosted-checkout/{attempt_id}")
+        );
+        let checkout = checkout_payload.lock().await.clone().unwrap();
+        assert_eq!(checkout["reference"], attempt_id);
+        assert_eq!(checkout["amount_cents"], 3500);
+        assert_eq!(checkout["currency"], "GBP");
+        assert!(checkout["return_url"]
+            .as_str()
+            .unwrap()
+            .contains("/b/release-blocker-regression/complete?attempt="));
+
+        let (status, recovery) = send(
+            &app,
+            "POST",
+            &format!("/api/v1/practice/attempts/{attempt_id}/recover"),
+            json!({}),
+            Some(owner_token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{recovery}");
+        assert_eq!(sends.load(Ordering::SeqCst), 1);
+
+        let receipt_body = json!({
+            "attemptId": attempt_id,
+            "providerEventId": "credentialed-provider-bounce-1",
+            "channel": "email",
+            "status": "bounced",
+            "detail": "Recipient mailbox rejected the message"
+        })
+        .to_string();
+        let unsigned = Request::builder()
+            .method("POST")
+            .uri(format!("/api/v1/provider/{practice_id}/receipts"))
+            .header("content-type", "application/json")
+            .header("x-forwarded-for", "198.51.100.201")
+            .body(Body::from(receipt_body.clone()))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(unsigned).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let mut mac =
+            <Hmac<Sha256> as Mac>::new_from_slice(b"callback-secret-held-by-provider").unwrap();
+        mac.update(receipt_body.as_bytes());
+        let signature = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
+        for duplicate in [false, true] {
+            let signed = Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/provider/{practice_id}/receipts"))
+                .header("content-type", "application/json")
+                .header("x-provider-signature", &signature)
+                .header("x-forwarded-for", "198.51.100.202")
+                .body(Body::from(receipt_body.clone()))
+                .unwrap();
+            let response = app.clone().oneshot(signed).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body: Value =
+                serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                    .unwrap();
+            assert_eq!(body["duplicate"], duplicate);
+        }
+        assert_eq!(sends.load(Ordering::SeqCst), 2, "one SMS fallback only");
+
+        let (status, paid) = send(
+            &app,
+            "POST",
+            &format!("/api/v1/public/attempts/{attempt_id}/payments/complete"),
+            json!({"license":"provider-signed-license-one-123456789"}),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{paid}");
+        let durable: (String, i64, i64) = sqlx::query_as(
+            "SELECT status, verified_at, (SELECT COUNT(*) FROM practice_delivery_events WHERE attempt_id = $1) FROM practice_payment_sessions WHERE attempt_id = $1",
+        )
+        .bind(attempt_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(durable.0, "paid");
+        assert!(durable.1 > 0);
+        assert_eq!(durable.2, 3);
+
+        let (_, second_attempt) = send(
+            &app,
+            "POST",
+            "/api/v1/public/release-blocker-regression/attempts",
+            json!({
+                "clientName":"Jordan Lee", "email":"jordan@example.test", "phone":null,
+                "scheduledFor":"2030-05-10T13:00:00Z", "emailConsent":true, "smsConsent":false
+            }),
+            None,
+        )
+        .await;
+        let second_id = second_attempt["attemptId"].as_str().unwrap();
+        let (reuse_status, _) = send(
+            &app,
+            "POST",
+            &format!("/api/v1/public/attempts/{second_id}/payments/complete"),
+            json!({"license":"provider-signed-license-one-123456789"}),
+            None,
+        )
+        .await;
+        assert_eq!(reuse_status, StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
     async fn hosted_payment_requires_verified_callback_and_is_idempotent() {
         let (app, pool) = test_app().await;
         let owner = create_owner(&app, "payment-test").await;
         let owner_token = owner["accessToken"].as_str().unwrap();
-        let receipt_token = owner["receiptToken"].as_str().unwrap();
-        let practice_id = owner["practice"]["id"].as_str().unwrap();
         let (_, attempt) = send(
             &app,
             "POST",
@@ -1508,29 +2004,24 @@ mod tests {
         )
         .await;
         let attempt_id = attempt["attemptId"].as_str().unwrap();
-        let payload =
-            json!({"attemptId":attempt_id,"providerEventId":"payment-verified-1","status":"paid"});
-        let unauthorized = Request::builder()
-            .method("POST")
-            .uri(format!("/api/v1/provider/{practice_id}/payments"))
-            .header("content-type", "application/json")
-            .header(
-                "x-receipt-token",
-                "wrong-token-with-enough-characters-123456789",
-            )
-            .header("x-forwarded-for", "198.51.100.90")
-            .body(Body::from(payload.to_string()))
-            .unwrap();
-        assert_eq!(
-            app.clone().oneshot(unauthorized).await.unwrap().status(),
-            StatusCode::UNAUTHORIZED
-        );
+        let invalid = json!({"license":"invalid_completion_token_123456789"});
+        let (status, _) = send(
+            &app,
+            "POST",
+            &format!("/api/v1/public/attempts/{attempt_id}/payments/complete"),
+            invalid,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let payload = json!({"license":"test_valid_license_payment_123456789"});
         for duplicate in [false, true] {
             let request = Request::builder()
                 .method("POST")
-                .uri(format!("/api/v1/provider/{practice_id}/payments"))
+                .uri(format!(
+                    "/api/v1/public/attempts/{attempt_id}/payments/complete"
+                ))
                 .header("content-type", "application/json")
-                .header("x-receipt-token", receipt_token)
                 .header("x-forwarded-for", "198.51.100.91")
                 .body(Body::from(payload.to_string()))
                 .unwrap();
@@ -1583,7 +2074,6 @@ mod tests {
         });
         let (app, pool) = test_app().await;
         let owner = create_owner(&app, "reminder-test").await;
-        let receipt_token = owner["receiptToken"].as_str().unwrap();
         let practice_id = owner["practice"]["id"].as_str().unwrap();
         sqlx::query("UPDATE practices SET delivery_webhook_url = $1 WHERE id = $2")
             .bind(format!("http://{address}/send"))
@@ -1603,18 +2093,15 @@ mod tests {
         )
         .await;
         let attempt_id = attempt["attemptId"].as_str().unwrap();
-        let payload = json!({
-            "attemptId":attempt_id,
-            "providerEventId":"reminder-payment-verified-1",
-            "status":"paid"
-        });
+        let payload = json!({"license":"test_valid_license_reminder_123456789"});
 
         for duplicate in [false, true] {
             let request = Request::builder()
                 .method("POST")
-                .uri(format!("/api/v1/provider/{practice_id}/payments"))
+                .uri(format!(
+                    "/api/v1/public/attempts/{attempt_id}/payments/complete"
+                ))
                 .header("content-type", "application/json")
-                .header("x-receipt-token", receipt_token)
                 .header("x-forwarded-for", "198.51.100.92")
                 .body(Body::from(payload.to_string()))
                 .unwrap();
@@ -1654,7 +2141,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unsupported_owner_delivery_urls_are_rejected_before_any_server_request() {
+    async fn owner_supplied_delivery_urls_are_ignored_before_any_server_request() {
         let (app, _) = test_app().await;
         let (status, body) = send(&app, "POST", "/api/v1/practices", json!({
             "name":"North Star Coaching", "publicSlug":"blocked-delivery", "timezone":"Europe/London",
@@ -1662,8 +2149,8 @@ mod tests {
             "currency":"GBP", "paymentUrl":"https://pay.example/session",
             "deliveryWebhookUrl":"https://169.254.169.254/latest/meta-data"
         }), None).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body["error"], "unsupported_delivery_provider");
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        assert_eq!(body["practice"]["deliveryConnected"], false);
     }
 
     #[tokio::test]

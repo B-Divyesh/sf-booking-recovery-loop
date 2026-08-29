@@ -1,101 +1,54 @@
-# Repair 7 handoff — complete
+# Repair 8 handoff
 
-**Work order:** `booking-recovery-loop-repair-7`
-**Base candidate:** `649a5e7efd92d84aae17290332337b7e5eebb096`
-**Live URL:** https://booking-recovery-loop.sociobot.in
-**Decision:** deployed and verified at commit `1c9c81ba985a` (Container App
-revision `sf-booking-recovery-loop--0000027`, three replicas).
+**Work order:** `booking-recovery-loop-repair-8`
 
-## Repair summary
+**Verifier report:** `02c4cf37209d37e444824d1f290752c73ecabd5e`
 
-- Reproduced the verifier's split-store root cause: the live Container App had
-  three-capable scaling with only `PORT`, so each replica selected its local
-  SQLite fallback. The deployed app is now configured with a shared PostgreSQL
-  `DATABASE_URL`, shared contact encryption key, and
-  `REQUIRE_SHARED_DATABASE=1`, which refuses the local fallback in production.
-- Added a cross-replica regression: two independent routers use separate pools
-  to one durable database; create/read/delete cross the boundary, then 13
-  alternating independent writes prove exactly 12 accepted and request 13 is
-  `429` with `Retry-After: 60`.
-- Replaced browser-stored owner keys with Entra External ID/MSAL session access.
-  The API validates discovery issuer, JWKS RS256 signature, audience, tenant,
-  expiry, and stable `oid`; unauthenticated practice routes return
-  `401 WWW-Authenticate: Bearer`.
-- Added a Dodo/Sociobot checkout link for Recovery Loop Practice at $29/month
-  and a server-side entitlement table. The obsolete static callback secret is
-  no longer returned to production browsers.
-- Corrected interactive targets to 44 px and changed the mobile ticket rail to
-  a single readable column at 390 px / 200% text.
-- The deployment has no credentialed email/SMS provider. The setup no longer
-  offers a fake Resend connection; live delivery is explicitly unavailable.
+**Failed candidate:** `cc5ce2c8289510bdd73e1133d5c1e99c5eab0cf9`
+**Live URL:** <https://booking-recovery-loop.sociobot.in>
 
-## Superseded verifier findings
+## Outcome
 
-- The live revision has three replicas and only `PORT`. A newly created
-  practice returned `200` on 29 of 90 independent reads and `404` on 61.
-  Production is still split across local SQLite stores despite the candidate's
-  shared-PostgreSQL source contract.
-- The only production delivery option is nonfunctional. A fresh consented
-  booking's Resend connection test and manual recovery both returned
-  `502 delivery_rejected`; automatic recovery, reminders, and SMS fallback
-  therefore cannot complete.
-- The $29/month Sociobot checkout returns 404. Session deposits use a static
-  practice URL and generic callback token, not per-booking Stripe Checkout and
-  signed Stripe events.
-- Rate limiting is multiplied by the three stores. One client completed 36
-  immediate demo writes for the documented 12-write allowance, and 126 API
-  reads for the advertised 40-request burst. Limited responses did include
-  `Retry-After` (`60` for writes, `1` for general API calls).
-- The startup-grade identity boundary is absent: no Sociobot Entra/MSAL/JWT
-  flow, `/auth/callback` is 404, and practice access is a browser-stored owner
-  key.
+The two verifier defects are repaired in the product and covered at their
+external boundaries. Owner-entered payment and delivery URLs are gone. A
+booking now asks the Sociobot billing boundary for its own Dodo-hosted checkout,
+stores the intent, and becomes paid only after Sociobot verifies the returned
+license. A license hash is stored, never its plaintext value, and reuse across
+bookings is rejected.
 
-## Verification that passed
+The delivery path now uses a server-owned HTTPS relay with bearer
+authentication. Provider callbacks require HMAC-SHA256 over the exact body.
+Authenticated event IDs and payload digests are durable and replay-safe. Email
+bounces create at most one SMS fallback, and only when SMS consent and a phone
+number were recorded. The scheduler continues to claim jobs durably and cannot
+send when consent is missing or withdrawn.
 
-- All 24 `.factory/claims.json` commands passed locally, but the deployed
-  storage, rate-limit, and delivery claims are contradicted by live evidence.
-- Cold first read and one-click sample gate passed.
-- `npm ci`, 10 frontend tests, rustfmt and 22 backend tests, the deployment
-  contract check, 27 browser tests, strict production build, bundle check,
-  optimized Rust build, and Clippy all passed.
-- The release binary starts with only `PORT`; health, static serving, and
-  graceful shutdown passed.
-- Live `/health` reports the candidate SHA. Candidate `index.html`, JS, and CSS
-  match live byte-for-byte.
-- Desktop/390 px axe found zero serious/critical issues. Keyboard, visible
-  focus, reduced motion, same-origin demo privacy, response headers, cache
-  policy, 404 handling, and normal/invalid input checks passed.
-- Mobile Lighthouse scored 100 in all four categories; LCP was 1.59 s, CLS 0,
-  TBT 0 ms, and transfer 138,941 B.
+The deployment remains a containerized web-with-backend product using Sociobot
+Entra External ID and the shared PostgreSQL topology. Billing remains entirely
+inside Sociobot/Dodo; Stripe and card fields were not added.
 
-The remaining accessibility defects are sub-44 px select/inline-link targets
-and poor line wrapping in the demo at 200% text size.
+## Exact regression evidence
 
-## How to reproduce
+`configured_delivery_and_sociobot_checkout_fix_the_release_blocker_end_to_end`
+uses separate HTTP processes for billing and delivery. It proves all of these
+in one flow:
 
-```sh
-npm ci
-npm test
-npm run check:backend
-npm run test:deployment
-npm run test:e2e
-VITE_BUILD_SHA=649a5e7efd92d84aae17290332337b7e5eebb096 npm run build
-npm run check:size
-npm run build:backend
-cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings
-```
+- the booking amount, currency, booking reference, and return URL reach the
+  dedicated Sociobot checkout endpoint;
+- the returned checkout and intent are stored for that booking;
+- delivery receives the server bearer credential and an idempotency key;
+- an unsigned receipt is rejected with 401;
+- a correctly signed bounce is stored durably;
+- replaying that callback does not duplicate the receipt or SMS;
+- one permitted SMS fallback is sent;
+- Sociobot verification changes the booking to paid;
+- the same completion license cannot pay a second booking.
 
-Run every exact command in `.factory/claims.json` individually before the
-broader suite. For the live deployment, use independent HTTP connections when
-testing persistence and limits; a reused connection remains pinned to one
-replica and hides the failure.
+The browser harness runs a separate billing fixture process and follows the
+real server checkout path to the allowlisted Dodo hostname. It also proves the
+return license is removed from the address bar before server verification.
 
-Full report and evidence:
-[verification-6.md](verification-6.md) and `verification-evidence-6/`.
-
-No product code was modified during verification.
-
-## Repair verification commands
+## Local verification
 
 Run from a clean checkout:
 
@@ -103,70 +56,78 @@ Run from a clean checkout:
 npm ci
 npm test
 npm run check:backend
+cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings
 npm run test:deployment
 npm run test:e2e
 npm run build
 npm run check:size
 npm run build:backend
-cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings
 ```
 
-The repaired local run passed 10 frontend unit tests, 23 Rust API tests, and
-27 Playwright browser tests. The cross-replica regression is
-`shared_durable_store_prevents_the_verifier_cross_replica_read_and_delete_split`.
+Results on 2026-08-29 UTC:
 
-## Final live evidence
+- clean `npm ci`: passed, 62 packages, zero vulnerabilities;
+- Vitest: 10 passed;
+- Rust API/integration: 24 passed;
+- rustfmt and Clippy with warnings denied: passed;
+- Playwright Chromium: 28 passed;
+- every one of the 24 `.factory/claims.json` commands: passed separately;
+- production frontend build: passed, JS 79,408 bytes gzip and CSS 22,252
+  bytes raw;
+- optimized Rust build: passed;
+- release binary with no required integration configuration: started on
+  `PORT`, returned 200 from `/health`, and logged graceful shutdown;
+- desktop, keyboard, route focus, response policy, offline error state,
+  serious/critical axe checks, and 390 px at 200% text: covered by the passing
+  Playwright suite.
 
-- ACR clean build `chwf` produced
-  `sociobotregistry.azurecr.io/sf-booking-recovery-loop:1c9c81ba985a`.
-  `/health` reports build `1c9c81ba985a`.
-- The exact verifier-style independent-connection probe created one demo
-  workspace, then made 90 no-keepalive reads with distinct forwarded IPs:
-  **90 × 200**. This proves the token is visible across the live replicas.
-- Thirteen no-keepalive, independently connected demo writes from the same
-  forwarded IP returned **12 × 201 and 1 × 429**, with `Retry-After: 60`.
-  This proves the production 12-write allowance is shared rather than
-  multiplied per replica. The browser live verifier separately passed its
-  13-write check and confirms the 40-read policy headers.
-- `node scripts/verify-live.mjs https://booking-recovery-loop.sociobot.in
-  .factory/repair-evidence/repair-7-live` passed: desktop/mobile screenshots,
-  routes, offline/demo privacy behavior, 303 Dodo checkout, no console errors,
-  mobile overflow, and rate limit evidence are retained in that directory.
-- An unauthenticated `GET /api/v1/practice` returns `401` and
-  `WWW-Authenticate: Bearer`; the production CSP permits only the required
-  Entra and Sociobot API origins in addition to same-origin.
+Migration `0007_owned_checkout_and_provider_callbacks` adds payment sessions
+and authenticated provider-callback receipts. Its down migration removes only
+those two tables. Existing legacy URL columns remain empty for safe migration
+compatibility and are never populated from owner input.
 
-## Known scope / operator evidence
+## Deployment configuration
 
-- The Sociobot Entra redirect URI must be registered as
-  `https://booking-recovery-loop.sociobot.in/auth/callback` on client
-  `25c704f4-465a-47af-80ab-2c489466b697`; the route and PKCE callback are in
-  the product, but registration cannot be proven from this repository.
-- A credentialed email and SMS adapter has not been provisioned. The UI states
-  this plainly and no longer permits a fake provider connection. Do not claim
-  live recovery/reminder delivery until an approved provider secret and signed
-  webhook adapter are deployed.
-- The shared runtime database secret was added directly to the Container App
-  because this worker identity may read but cannot create Key Vault secrets.
+Non-secret configuration:
 
-## Independent verification 7 — FAIL (2026-08-29)
+- `PUBLIC_BASE_URL=https://booking-recovery-loop.sociobot.in`
+- `SOCIOBOT_BILLING_BASE_URL=https://api.sociobot.in/api/v1`
+- `SOCIOBOT_BOOKING_PRODUCT_SLUG=booking-recovery-loop-deposit`
+- `REQUIRE_SHARED_DATABASE=1`
 
-Candidate `cc5ce2c8289510bdd73e1133d5c1e99c5eab0cf9` is live at
-`https://booking-recovery-loop.sociobot.in` (`/health` reports that exact
-SHA). **Do not release it.**
+Secret-backed configuration:
 
-All 24 mandatory claims, local tests/builds, live demo privacy checks,
-accessibility checks, CSP/cache headers, Entra redirect, and the live 12-write
-rate limit passed. The checkout link now also returns 303 to Dodo.
+- `DATABASE_URL` — shared PostgreSQL runtime URL;
+- `CONTACT_ENCRYPTION_KEY` — shared 32-byte contact encryption key;
+- `DELIVERY_PROVIDER_TOKEN` — approved relay bearer credential;
+- `DELIVERY_CALLBACK_SECRET` — shared provider callback HMAC secret.
 
-The release nevertheless fails the researched product contract: the live
-`/start` screen says email/SMS delivery is not enabled, and real recovery or
-reminder jobs return `delivery_not_connected` without a configured provider.
-The only working receipt is simulated demo data. The product also only accepts
-an arbitrary pasted hosted deposit URL; it does not create or verify a
-product-owned Stripe Checkout deposit. These are central requirements, not
-optional polish.
+`DELIVERY_PROVIDER_URL` must name the approved relay's HTTPS send endpoint.
+No secret value belongs in source control or browser code.
 
-See [verification-7.md](verification-7.md) for exact evidence, commands,
-severity, and required remediation. No product code was changed by this
-verification.
+## Needs operator action before release
+
+The worker's Azure inventory contains no email/SMS delivery service, relay URL,
+SMS credential, or delivery callback secret. Gmail OAuth client credentials
+exist, but there is no refresh token and they do not provide SMS. Therefore no
+honest live delivery configuration can be derived from the approved secrets.
+Provision the approved dual-channel relay and add the three delivery settings
+above. Until then `/api/v1/integrations/status` reports delivery unconfigured
+and real sends fail closed as `delivery_not_connected`.
+
+The approved billing APIs currently return 404 for
+`booking-recovery-loop-deposit` in both production and pilot. The existing
+`booking-recovery-loop` product is the $29 monthly practice subscription and
+must not be reused for client deposits. Register the dedicated variable-amount
+deposit product in Sociobot/Dodo with the production return origin, then retain
+the configured product slug above. Until registration, booking creation rolls
+back safely with `checkout_rejected` and does not occupy the chosen slot.
+
+Confirm the Entra redirect URI
+`https://booking-recovery-loop.sociobot.in/auth/callback` remains registered on
+client `25c704f4-465a-47af-80ab-2c489466b697`.
+
+These are external service-provisioning blockers, not repository TODOs. The
+implementation and deterministic deployed-path fixtures are complete, but the
+venture must not be declared releasable until live status and a controlled
+email-bounce-to-SMS booking pass against the provisioned services.

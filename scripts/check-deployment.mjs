@@ -20,6 +20,15 @@ if (config.database?.engine !== "postgresql" || config.database?.connectionStrin
 if (!config.database?.backup || !config.secrets?.CONTACT_ENCRYPTION_KEY) {
   throw new Error("Production needs a backup/restore plan and a shared contact encryption key.");
 }
+if (!config.secrets?.DELIVERY_PROVIDER_TOKEN || !config.secrets?.DELIVERY_CALLBACK_SECRET) {
+  throw new Error("Production needs credentialed delivery and authenticated callback secrets.");
+}
+if (config.environment?.SOCIOBOT_BILLING_BASE_URL !== "https://api.sociobot.in/api/v1") {
+  throw new Error("Booking checkout must use the approved Sociobot billing boundary.");
+}
+if (config.environment?.SOCIOBOT_BOOKING_PRODUCT_SLUG !== "booking-recovery-loop-deposit") {
+  throw new Error("Booking deposits must not reuse the practice subscription product.");
+}
 if (config.environment?.DATABASE_URL !== "secretref:database-url" || config.environment?.REQUIRE_SHARED_DATABASE !== "1") {
   throw new Error("Production must inject the shared database secret and refuse replica-local fallback.");
 }

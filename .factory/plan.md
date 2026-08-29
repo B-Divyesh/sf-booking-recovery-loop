@@ -1,6 +1,6 @@
 # Booking Recovery Loop — venture plan
 
-**Status:** Polish 1 release slice implemented; demo and core practice workflow are live candidates.
+**Status:** Repair 8 implementation complete; production provider credentials and the dedicated deposit product remain operator-gated.
 **Product URL:** `https://booking-recovery-loop.sociobot.in`
 **Planning date:** 2026-08-28
 
@@ -49,7 +49,7 @@ step.**
 
 1. **Make a paid session easy to finish.** An owner publishes a branded session
    page with a clear service, available times, consent wording, and a
-   Stripe-hosted deposit step. The product records the attempt and never handles
+   Sociobot/Dodo-hosted deposit step. The product records the attempt and never handles
    card data.
 2. **Recover an unfinished booking responsibly.** When a known visitor stops
    before payment or confirmation, the product applies a practice-defined,
@@ -73,9 +73,9 @@ There is no permanent free production tier. The public, no-account demo is a
 safe sample, not a trial storing customer data. A higher tier is intentionally
 deferred until pilots establish a usage boundary that justifies it.
 
-End-client session deposits are a distinct flow: those payments use a
-Stripe-hosted Checkout page connected to the practice's Stripe account. No card
-number, CVC, or payment form is collected by Booking Recovery Loop.
+End-client session deposits are a distinct flow: the server creates a
+per-booking checkout through the approved Sociobot billing API, backed by Dodo.
+No card number, CVC, or payment form is collected by Booking Recovery Loop.
 
 ### Deliberately out of scope
 
@@ -162,7 +162,7 @@ shell is always header → main → footer and includes a skip link.
 | `/app` | M2 | Authenticated practice home |
 | `/app/settings/billing` | M2 | Subscription, hosted checkout, restore/manage subscription |
 | `/b/:public_slug` | M3 | Public branded paid-session page |
-| `/b/:public_slug/complete` | M3 | Stripe return reconciliation page |
+| `/b/:public_slug/complete` | M3 | Sociobot return reconciliation page |
 | `/app/recovery` | M4 | Recovery queue and delivery proof |
 | `/app/settings/data` | M5 | Export and deletion controls |
 | `/app/settings/integrations` | M6 | Booking-link, calendar, and webhook connections |
@@ -212,13 +212,13 @@ contact values and tokens.
 | `practice` | customer tenant | name, timezone, public brand, recovery defaults, deletion status |
 | `practice_member` | practice + user | role `owner` or `operator`; unique membership |
 | `service` | practice | name, duration, price/deposit amount, active flag |
-| `booking_page` | practice + service | public slug, consent copy/version, availability source, Stripe configuration reference |
+| `booking_page` | practice + service | public slug, consent copy/version, availability source, Sociobot checkout product reference |
 | `availability_slot` | booking page | start/end, source reference, held/available state; this is a display cache, not a calendar replacement |
 | `booking_attempt` | practice + page | anonymous/session token, selected slot, state, contact reference after consent, attribution, expiry |
 | `contact` | practice | encrypted name/email/phone, normalized hashes, channel consent state; never shared across practices |
 | `consent_record` | contact + attempt | channel, wording/version, timestamp, IP hash, source, withdrawal timestamp |
 | `booking` | practice + attempt | scheduled time, payment state, attendance state, cancellation state, public reference |
-| `payment_session` | booking | Stripe Checkout session ID, deposit amount/currency, hosted status only; no card data |
+| `payment_session` | booking | Sociobot intent ID, checkout URL, deposit amount/currency, verification status; no card data |
 | `recovery_rule` | practice | trigger, delay, permitted channel order, cap, active version |
 | `recovery_case` | attempt or booking | reason, state, next action time, rule version, owner override, resolved reason |
 | `outbound_message` | recovery case | channel, approved template/version, idempotency key, provider message reference, send state |
@@ -243,10 +243,11 @@ contact values and tokens.
   factory's registered Sociobot billing contract in M2. Plan IDs live in server
   configuration and are allowlisted; the browser may request a plan but cannot
   set a price, product, or practice ID.
-- Session deposits: M3 creates or reuses a Stripe-hosted Checkout Session on
-  the server and verifies signed Stripe webhook events. It stores only Stripe
-  IDs and status. It does not use embedded Elements, collect card data, or
-  claim payment completion from a return URL alone.
+- Session deposits: M3 creates one Dodo-hosted checkout through Sociobot on
+  the server, binds its intent to the booking, and verifies the returned
+  Sociobot license before recording payment. It stores only intent IDs,
+  license hashes, and status. It does not collect card data or trust a return
+  URL alone.
 
 ### API, jobs, integrations, and operations
 
@@ -295,7 +296,7 @@ present. Browser-only state uses the `demo:` namespace, never a production key.
 The persistent banner says **“Demo — sample data, nothing is saved”** and has
 **Reset demo** and **Start for real**. Reset replaces the demo token and seeds
 a fresh workspace. Demo uses a fake payment result and in-process delivery
-receipt; it does not send email/SMS, create a Stripe session, authenticate, or
+receipt; it does not send email/SMS, create a checkout, authenticate, or
 spend AI money. M1 writes `.factory/demo.md` with the seed, reset behavior,
 TTL, API boundary, and all claim paths.
 
@@ -401,17 +402,17 @@ pass.
 
 ### M3 — Real branded paid-session page
 
-**Status:** shipped in Polish 1 with hosted-payment URL and authenticated payment callback
+**Status:** repaired in Repair 8 with server-created Sociobot/Dodo checkout and verified completion
 **Goal:** A practice can publish one focused session page that creates a real,
-consented booking attempt and completes a Stripe-hosted deposit flow.
+consented booking attempt and completes a Sociobot/Dodo-hosted deposit flow.
 
 **Routes/screens:** `/b/:public_slug`, `/b/:public_slug/complete`,
 `/app/pages`, `/app/pages/:id`.
 
 **Build scope:** Create service/page editor, available-slot display/hold,
 contact form with explicit email/SMS consent by channel, consent versioning,
-attempt expiry, and server-created Stripe-hosted Checkout Session. Reconcile
-only verified Stripe webhooks into bookings/payment status. A return page
+attempt expiry, and a server-created Sociobot/Dodo checkout. Reconcile only
+Sociobot-verified completion tokens into bookings/payment status. A return page
 states that confirmation is being checked rather than claiming payment early.
 The product owns a compact availability cache or imported slots only; it does
 not become a full calendar.
@@ -422,7 +423,7 @@ verified webhook; an occupied/expired slot cannot be double-booked.
 
 **Tests:** public form validation and keyboard flow; server-side intent and
 slot concurrency integration test; signed webhook accept/reject/idempotency
-tests; Playwright against Stripe fixtures/test mode with no card data in DOM or
+tests; Playwright against billing fixtures/test mode with no card data in DOM or
 logs; per-page/IP write-limit test; responsive/axe regression.
 
 **Definition of done:** A pilot can create a paid booking without platform card
@@ -432,7 +433,7 @@ demo regression, migration reversal, review, and handoff pass.
 
 ### M4 — Reminder delivery and accountable fallback
 
-**Status:** shipped in Polish 1 through the HTTPS provider adapter and authenticated receipt callback
+**Status:** repaired in Repair 8 with a credentialed relay contract, HMAC callbacks, durable receipts, and one-bounce fallback; live provider provisioning remains operator-gated
 **Goal:** The practice can protect a booked session with reminders, visible
 delivery proof, and one consented fallback when the first delivery bounces or
 fails.
@@ -521,7 +522,7 @@ all new claims/tests/review/handoff pass.
 | --- | --- | --- |
 | Owners may see abandoned attempts but lack a lawful contact route. | Recovery cannot be sent without consent. | In M1–M3 prototype, measure consent completion and simulation eligibility. Interview five pilots on wording. Do not enable real fallback if consent capture is confusing or low. |
 | A $29 subscription may not cover message volume or fail to recover a session. | The price must sustain delivery and be worth paying. | Track (without marketing it as proof) message cost, eligible attempts, recoveries, and no-shows for 60 days across pilots. Keep a hard allowance and revisit tier only with evidence. |
-| Stripe account connection and hosted deposit rules vary by practice/country. | Payment truth must be reliable and compliant. | M3 supports one documented supported region and Stripe test fixtures first. Pilot a Standard-account connection and signed webhook recovery before expanding. |
+| Sociobot/Dodo deposit products vary by amount and currency. | Payment truth must be reliable and compliant. | Register allowlisted deposit products through the factory billing process and verify each returned license before expanding currencies. |
 | Delivery provider receipts are incomplete or delayed. | “Proof” becomes misleading. | M4 adapter contract distinguishes accepted, delivered, and unknown. Run controlled mailbox/phone tests across supported channels; show “awaiting receipt,” never infer delivery. |
 | Reminder rules create annoyance or regulatory exposure. | Trust and compliance damage exceed recovered revenue. | Default cap of one recovery plus one allowed fallback, explicit opt-out, quiet-hours/timezone test, and review every pilot template before send. |
 | Entra shared-app redirect registration blocks production sign-in. | M2 cannot authenticate a real owner. | Request/verify the specified callback registration before starting M2; keep M1 entirely public and demoable. |

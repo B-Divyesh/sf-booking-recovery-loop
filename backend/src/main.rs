@@ -42,10 +42,49 @@ pub(crate) struct AppState {
     pub(crate) encryption_key: Arc<[u8; 32]>,
     pub(crate) http: reqwest::Client,
     pub(crate) entra: auth::EntraValidator,
+    pub(crate) integrations: Arc<IntegrationConfig>,
     /// This exists only for isolated integration tests which run a loopback
     /// delivery fixture. Production never honours owner supplied URLs.
     pub(crate) allow_test_delivery_urls: bool,
     static_dir: Arc<PathBuf>,
+}
+
+#[derive(Clone)]
+pub(crate) struct IntegrationConfig {
+    pub(crate) delivery_url: Option<String>,
+    pub(crate) delivery_bearer_token: Option<String>,
+    pub(crate) delivery_callback_secret: Option<String>,
+    pub(crate) billing_base_url: String,
+    pub(crate) billing_product_slug: String,
+    pub(crate) public_base_url: String,
+}
+
+impl IntegrationConfig {
+    fn from_environment() -> Self {
+        Self {
+            delivery_url: env::var("DELIVERY_PROVIDER_URL")
+                .ok()
+                .filter(|v| !v.is_empty()),
+            delivery_bearer_token: env::var("DELIVERY_PROVIDER_TOKEN")
+                .ok()
+                .filter(|v| !v.is_empty()),
+            delivery_callback_secret: env::var("DELIVERY_CALLBACK_SECRET")
+                .ok()
+                .filter(|v| !v.is_empty()),
+            billing_base_url: env::var("SOCIOBOT_BILLING_BASE_URL")
+                .unwrap_or_else(|_| "https://api.sociobot.in/api/v1".to_owned()),
+            billing_product_slug: env::var("SOCIOBOT_BOOKING_PRODUCT_SLUG")
+                .unwrap_or_else(|_| "booking-recovery-loop-deposit".to_owned()),
+            public_base_url: env::var("PUBLIC_BASE_URL")
+                .unwrap_or_else(|_| "https://booking-recovery-loop.sociobot.in".to_owned()),
+        }
+    }
+
+    fn delivery_ready(&self) -> bool {
+        self.delivery_url.is_some()
+            && self.delivery_bearer_token.is_some()
+            && self.delivery_callback_secret.is_some()
+    }
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -63,6 +102,22 @@ pub(crate) fn app_router_with_key(
     static_dir: impl Into<PathBuf>,
     encryption_key: [u8; 32],
 ) -> Router {
+    app_router_with_integrations(
+        pool,
+        build_sha,
+        static_dir,
+        encryption_key,
+        IntegrationConfig::from_environment(),
+    )
+}
+
+pub(crate) fn app_router_with_integrations(
+    pool: AnyPool,
+    build_sha: impl Into<Arc<str>>,
+    static_dir: impl Into<PathBuf>,
+    encryption_key: [u8; 32],
+    integrations: IntegrationConfig,
+) -> Router {
     let static_dir = static_dir.into();
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -75,11 +130,17 @@ pub(crate) fn app_router_with_key(
         demo_lock: Arc::new(Mutex::new(())),
         encryption_key: Arc::new(encryption_key),
         entra: auth::EntraValidator::from_environment(http.clone()),
+        integrations: Arc::new(integrations),
         http,
         allow_test_delivery_urls: cfg!(test)
             || env::var("ALLOW_UNSAFE_TEST_DELIVERY_URLS").ok().as_deref() == Some("1"),
         static_dir: Arc::new(static_dir.clone()),
     };
+    app_router_from_state(state)
+}
+
+fn app_router_from_state(state: AppState) -> Router {
+    let static_dir = state.static_dir.as_ref().clone();
 
     let mut general_builder = GovernorConfigBuilder::default().key_extractor(SmartIpKeyExtractor);
     general_builder
@@ -138,12 +199,16 @@ pub(crate) fn app_router_with_key(
             post(routes::practice::receipt),
         )
         .route(
-            "/provider/{practice_id}/payments",
-            post(routes::practice::payment),
+            "/public/attempts/{attempt_id}/payments/complete",
+            post(routes::practice::complete_payment),
         )
         .route("/practice", axum::routing::delete(routes::practice::delete))
         .layer(GovernorLayer::new(write_limit.clone()).error_handler(write_limit_error));
     let practice_read_routes = Router::new()
+        .route(
+            "/integrations/status",
+            get(routes::practice::integration_status),
+        )
         .route("/practice", get(routes::practice::show))
         .route("/practice/export", get(routes::practice::export))
         .route("/public/{slug}", get(routes::practice::public_show))
@@ -482,11 +547,18 @@ async fn main() {
         load_key_from_environment_or_file(std::path::Path::new(&key_path)).await;
     let address = SocketAddr::from(([0, 0, 0, 0], port));
     let build_sha = env!("BUILD_SHA");
+    let integrations = IntegrationConfig::from_environment();
+    let delivery_source = if integrations.delivery_ready() {
+        "supplied credentialed provider"
+    } else {
+        "not configured"
+    };
     info!(
         port,
         port_source,
         database_source,
         key_source,
+        delivery_source,
         build_sha,
         "configuration loaded; contact encryption key is persisted without logging its value"
     );
@@ -496,21 +568,24 @@ async fn main() {
         .expect("the configured HTTP port must be bindable");
     info!(%address, "Booking Recovery Loop API is listening");
 
-    let app = app_router_with_key(pool.clone(), build_sha, static_dir, encryption_key);
-    let scheduler_state = AppState {
-        build_sha: Arc::from(env!("BUILD_SHA")),
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("HTTP client configuration is valid");
+    let state = AppState {
+        build_sha: Arc::from(build_sha),
         pool,
         demo_lock: Arc::new(Mutex::new(())),
         encryption_key: Arc::new(encryption_key),
-        http: reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .expect("HTTP client configuration is valid"),
-        entra: auth::EntraValidator::from_environment(reqwest::Client::new()),
+        entra: auth::EntraValidator::from_environment(http.clone()),
+        http,
+        integrations: Arc::new(integrations),
         allow_test_delivery_urls: false,
-        static_dir: Arc::new(PathBuf::new()),
+        static_dir: Arc::new(PathBuf::from(static_dir)),
     };
+    let scheduler_state = state.clone();
+    let app = app_router_from_state(state);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         loop {

@@ -16,6 +16,7 @@ import {
 import { canonicalUrl, pageFor, routeFor, type SiteRoute } from "./lib/site";
 import {
   createBookingAttempt,
+  completeBookingPayment,
   createPractice,
   deletePractice,
   loadPractice,
@@ -46,6 +47,9 @@ let practiceLoading = false;
 let practiceError: string | null = null;
 let practiceNotice: string | null = null;
 let identityName: string | null = null;
+let paymentCheck: "idle" | "checking" | "paid" | "failed" = "idle";
+let paymentMessage = "Returning from checkout does not prove payment. Sociobot must verify the signed completion first.";
+const PENDING_BOOKING_KEY = "booking-recovery-loop:pending-booking";
 
 function homeContent(): string {
   return `
@@ -286,12 +290,10 @@ function startContent(): string {
         <label>Deposit in minor units<input name="depositCents" type="number" min="0" max="1000000" required value="3500" aria-describedby="deposit-help"></label>
         <p id="deposit-help" class="field-help">For £35, enter 3500.</p>
         <label>Currency<input name="currency" required minlength="3" maxlength="3" value="GBP"></label>
-        <label>Hosted deposit URL<input name="paymentUrl" type="url" inputmode="url" required placeholder="https://payments.your-practice.example/session" aria-describedby="payment-help"></label>
-        <p id="payment-help" class="field-help">Paste the secure payment page you already use. The booking form has no card fields.</p>
+        <p id="payment-help" class="field-help">Booking Recovery Loop creates a separate Sociobot/Dodo hosted checkout for each booking. No payment URL or card field is stored here.</p>
       </fieldset>
       <fieldset><legend>Delivery connection</legend>
-        <p id="delivery-help" class="field-help">Live email and SMS delivery are not enabled in this deployment. The product will not accept client contact data for a provider connection until a credentialed provider is configured.</p>
-        <input name="deliveryWebhookUrl" type="hidden" value="">
+        <p id="delivery-help" class="field-help">Email and SMS use the server’s credentialed provider. Provider addresses, access tokens, and callback secrets never enter this form or browser storage.</p>
       </fieldset>
       <button class="button button-primary" type="submit">Create practice workspace</button>
     </form>
@@ -309,6 +311,7 @@ function appContent(): string {
   if (!practice) return statePage("Review bookings that need action", "Loading your practice workspace.");
   return `<section class="practice-heading"><div><p class="eyebrow">${escapeHtml(practice.name)}</p><h1 tabindex="-1">Review bookings that need action</h1><p class="lede">Recovery and reminders run automatically when their due time arrives. Email or SMS consent decides the channel.</p></div>
     <div class="button-row"><a class="button button-secondary" href="/b/${escapeHtml(practice.publicSlug)}">Open public booking page</a><a class="button button-secondary" href="/app/settings/data">Manage data</a></div></section>
+    <p class="inline-notice ${practice.deliveryConnected ? "" : "notice-error"}" role="status">Delivery provider: ${practice.deliveryConnected ? "Connected with authenticated callbacks" : "Not configured on this server"}.</p>
     ${practiceNotice ? `<p class="inline-notice" role="status" aria-live="polite">${escapeHtml(practiceNotice)}</p>` : ""}
     <section class="practice-board" aria-labelledby="attempts-title"><h2 id="attempts-title">Booking attempts</h2>
       ${practice.attempts.length === 0 ? `<div class="state-panel"><div><h3>No bookings need attention</h3><p>New bookings from your public page will appear here.</p></div></div>` : `<ul class="practice-attempts">${practice.attempts.map((attempt) => `<li><article><div class="attempt-top"><h3>${escapeHtml(attempt.clientName)}</h3><span class="status ${attempt.state === "recovered" ? "status-good" : "status-attention"}">${escapeHtml(attempt.state.replaceAll("_", " "))}</span></div><p>${formatDateTime(attempt.scheduledFor)}</p><p>Email consent: <strong>${attempt.emailConsent ? "Recorded" : "Missing"}</strong> · SMS consent: <strong>${attempt.smsConsent ? "Recorded" : "Missing"}</strong></p><p class="evidence-time">Consent recorded ${formatDateTime(attempt.consentRecordedAt)}</p>${scheduledJobs(attempt.scheduledJobs)}${attempt.events.length ? `<ol class="receipt-timeline">${attempt.events.map((event) => `<li><span class="receipt-node" aria-hidden="true">✓</span><div><strong>${titleCase(event.status)} · ${escapeHtml(event.channel)}</strong><time datetime="${escapeHtml(event.occurredAt)}">${formatDateTime(event.occurredAt)}</time><p>${escapeHtml(event.detail)}</p></div></li>`).join("")}</ol>` : `<p>No delivery receipt yet.</p>`}${attempt.scheduledJobs.some((job) => job.status === "failed") ? `<button class="button button-secondary" type="button" data-action="recover-practice" data-attempt-id="${escapeHtml(attempt.id)}">Retry delivery now</button>` : ""}</article></li>`).join("")}</ul>`}
@@ -325,11 +328,12 @@ function bookingContent(): string {
     ${practiceNotice ? `<p class="inline-notice" role="status">${escapeHtml(practiceNotice)}</p>` : ""}
     <form class="booking-form" data-form="create-booking"><label>Your name<input name="clientName" required minlength="2" maxlength="100" autocomplete="name"></label><label>Email address<input name="email" type="email" autocomplete="email"></label><label>Mobile number<input name="phone" type="tel" autocomplete="tel"></label><label>Session time<input name="scheduledFor" type="datetime-local" required value="${tomorrow.toISOString().slice(0,16)}" aria-describedby="slot-help"></label><p id="slot-help" class="field-help">A time already held by another active booking cannot be selected.</p>
       <fieldset><legend>Contact consent</legend><p>${escapeHtml(publicPage.consentWording)}</p><label class="check-label"><input name="emailConsent" type="checkbox"> I give email consent for this booking</label><label class="check-label"><input name="smsConsent" type="checkbox"> I give SMS consent for this booking</label></fieldset>
-      <button class="button button-primary" type="submit">Save booking and open payment</button><p class="action-note">This form records no card number, card expiry, or security code. You will leave this site for the practice’s hosted payment page.</p></form></article>`;
+      <button class="button button-primary" type="submit">Save booking and open secure checkout</button><p class="action-note">The server creates this booking’s Sociobot/Dodo checkout. This form records no card number, expiry, or security code.</p></form></article>`;
 }
 
 function completeContent(): string {
-  return `<article class="policy-page"><p class="eyebrow">Payment status</p><h1 tabindex="-1">Your deposit is being checked</h1><p class="policy-lede">Returning from checkout does not prove payment. The practice will confirm your booking after its payment provider reports the deposit.</p><a class="button button-primary" href="/">Return home</a></article>`;
+  const heading = paymentCheck === "paid" ? "Your deposit is confirmed" : paymentCheck === "failed" ? "Your deposit could not be confirmed" : "Your deposit is being checked";
+  return `<article class="policy-page"><p class="eyebrow">Payment status</p><h1 tabindex="-1">${heading}</h1><p class="policy-lede" role="status" aria-live="polite">${escapeHtml(paymentMessage)}</p><a class="button button-primary" href="/">Return home</a></article>`;
 }
 
 function dataContent(): string {
@@ -365,7 +369,7 @@ function termsContent(): string {
       <h1 tabindex="-1">Terms for using Booking Recovery Loop</h1>
       <p class="policy-lede">Use the demo with its fictional records. Use a real workspace only for bookings you are allowed to manage.</p>
       <section><h2>Use the sample safely</h2><p>Use only the fictional records already provided. Do not enter client contact details.</p></section>
-      <section><h2>Hosted payments</h2><p>Practices provide their own hosted payment link. The booking form has no card fields and does not confirm payment from a return URL.</p></section>
+      <section><h2>Hosted payments</h2><p>The server creates one Sociobot/Dodo checkout for each booking. The booking form has no card fields, and only Sociobot verification confirms payment.</p></section>
       <section><h2>Messages and consent</h2><p>Automatic recovery and reminders use only recorded email or SMS consent.</p><p>A delivery receipt reports provider status. It is not a guarantee that a person read the message.</p></section>
       <section><h2>Availability</h2><p>The sample may reset during maintenance. Use Reset demo whenever its state is unclear.</p></section>
       <section><h2>Fair use</h2><p>Automated abuse may be rate limited. A limited request returns a retry time.</p></section>
@@ -698,7 +702,7 @@ document.addEventListener("submit", (event) => {
   if (form.dataset.form === "create-practice") void (async () => {
     practiceNotice = "Creating the private practice workspace."; render();
     try {
-      const result = await createPractice({ name: data.get("name"), publicSlug: data.get("publicSlug"), timezone: data.get("timezone"), serviceName: data.get("serviceName"), durationMinutes: Number(data.get("durationMinutes")), depositCents: Number(data.get("depositCents")), currency: data.get("currency"), paymentUrl: data.get("paymentUrl"), deliveryWebhookUrl: data.get("deliveryWebhookUrl") });
+      const result = await createPractice({ name: data.get("name"), publicSlug: data.get("publicSlug"), timezone: data.get("timezone"), serviceName: data.get("serviceName"), durationMinutes: Number(data.get("durationMinutes")), depositCents: Number(data.get("depositCents")), currency: data.get("currency") });
       practice = result.practice; practiceNotice = "Practice created for your signed-in account.";
       navigate(new URL("/app", window.location.origin), true);
     } catch (error) { practiceNotice = messageFor(error); render(); }
@@ -709,7 +713,8 @@ document.addEventListener("submit", (event) => {
     practiceNotice = "Saving the booking and consent record."; render();
     try {
       const result = await createBookingAttempt(slug, { clientName: data.get("clientName"), email: data.get("email") || null, phone: data.get("phone") || null, scheduledFor: scheduled, emailConsent: data.get("emailConsent") === "on", smsConsent: data.get("smsConsent") === "on" });
-      window.location.assign(result.paymentUrl);
+      sessionStorage.setItem(PENDING_BOOKING_KEY, JSON.stringify({ attemptId: result.attemptId, slug }));
+      window.location.assign(result.checkoutUrl);
     } catch (error) { practiceNotice = messageFor(error); render(); }
   })();
 });
@@ -788,8 +793,36 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#039;");
 }
 
+async function initialisePaymentReturn(): Promise<void> {
+  const url = new URL(window.location.href);
+  const license = url.searchParams.get("license");
+  const stored = sessionStorage.getItem(PENDING_BOOKING_KEY);
+  let pending: { attemptId?: string; slug?: string } = {};
+  if (stored) {
+    try { pending = JSON.parse(stored) as { attemptId?: string; slug?: string }; } catch { pending = {}; }
+  }
+  const attemptId = url.searchParams.get("attempt") ?? pending.attemptId;
+  const slug = /^\/b\/([a-z0-9-]+)\/complete$/.exec(url.pathname)?.[1] ?? pending.slug;
+  if (!license || !attemptId || !slug) return;
+  window.history.replaceState({}, "", `/b/${encodeURIComponent(slug)}/complete?attempt=${encodeURIComponent(attemptId)}`);
+  paymentCheck = "checking";
+  paymentMessage = "Checking the signed completion with Sociobot. The return address alone does not mark this booking paid.";
+  render();
+  try {
+    await completeBookingPayment(attemptId, license);
+    paymentCheck = "paid";
+    paymentMessage = "Sociobot verified the hosted checkout. Your booking is paid, and its reminder is scheduled.";
+    sessionStorage.removeItem(PENDING_BOOKING_KEY);
+  } catch (error) {
+    paymentCheck = "failed";
+    paymentMessage = messageFor(error);
+  }
+  render();
+}
+
 void initialiseIdentity().then(async () => {
   identityName = await signedInName();
+  await initialisePaymentReturn();
   render({ focusHeading: window.location.pathname === "/auth/callback" });
 });
 render();

@@ -105,11 +105,11 @@ impl EntraValidator {
     pub(crate) async fn owner_oid(&self, headers: &HeaderMap) -> Result<String, AuthError> {
         #[cfg(test)]
         {
-            return headers
+            headers
                 .get("x-test-oid")
                 .and_then(|value| value.to_str().ok())
                 .map(ToOwned::to_owned)
-                .ok_or(AuthError);
+                .ok_or(AuthError)
         }
         #[cfg(not(test))]
         {

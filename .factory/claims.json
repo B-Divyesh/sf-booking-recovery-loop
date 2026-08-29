@@ -74,7 +74,7 @@
     "claim": "A booking records channel consent before opening hosted payment.",
     "where": "Public booking page, privacy page, README",
     "test": "npm run test:e2e -- --grep @claim:booking-consent-record",
-    "sandbox": "A clean practice receives a public booking with explicit email consent, the browser opens only its configured hosted payment URL, and the owner API shows the timestamped consent and awaiting-deposit state."
+    "sandbox": "A clean practice receives a public booking with explicit email consent, the browser opens its server-created Dodo checkout, and the owner API shows timestamped consent and awaiting-deposit state."
   },
   {
     "id": "encrypted-tenant-data",
@@ -101,15 +101,15 @@
     "id": "delivery-fallback-receipts",
     "claim": "A permitted recovery records provider status, and one email bounce can trigger one permitted SMS fallback.",
     "where": "Recovery queue, terms, README",
-    "test": "cargo test --manifest-path backend/Cargo.toml delivery_acceptance_bounce_fallback_and_receipts_are_idempotent",
-    "sandbox": "An isolated practice connects an in-process provider, sends one consented email, records an authenticated bounce receipt twice, and proves exactly one SMS fallback plus an auditable event timeline."
+    "test": "cargo test --manifest-path backend/Cargo.toml configured_delivery_and_sociobot_checkout_fix_the_release_blocker_end_to_end",
+    "sandbox": "A separate credentialed HTTP provider receives a consented email with bearer authentication. An unsigned callback is rejected, a signed bounce is stored durably twice without duplication, and exactly one SMS fallback is sent."
   },
   {
     "id": "verified-deposit",
-    "claim": "A hosted payment return does not mark a deposit paid; only an authenticated provider event does.",
+    "claim": "Each booking gets a server-created Sociobot/Dodo checkout, and only Sociobot verification marks its deposit paid.",
     "where": "Booking completion page, terms, README",
     "test": "cargo test --manifest-path backend/Cargo.toml hosted_payment_requires_verified_callback_and_is_idempotent",
-    "sandbox": "An isolated booking starts awaiting deposit, rejects an invalid callback token, accepts one authenticated paid event twice without duplication, and then shows paid in the owner record."
+    "sandbox": "An isolated booking stores its product-owned checkout intent, rejects an invalid completion token, verifies one Sociobot license twice without duplication, and then shows paid in the owner record."
   },
   {
     "id": "no-double-booking",
@@ -137,7 +137,7 @@
     "claim": "A verified deposit sends one durable session reminder when it is due.",
     "where": "README product workflow and recovery queue",
     "test": "cargo test --manifest-path backend/Cargo.toml automatic_reminder_is_delivered_once_when_due_after_verified_deposit",
-    "sandbox": "An isolated payment callback accepts one authenticated paid event, advances its durable session-reminder job to due, runs the scheduler twice, and observes exactly one provider delivery plus a sent receipt."
+    "sandbox": "An isolated Sociobot verification accepts one signed completion, advances its durable session-reminder job to due, runs the scheduler twice, and observes exactly one provider delivery plus a sent receipt."
   },
   {
     "id": "practice-data-inventory",
@@ -151,7 +151,7 @@
     "claim": "The booking form has no card fields; payment card details stay on the practice’s hosted payment page.",
     "where": "Booking page, privacy page, terms",
     "test": "npm run test:e2e -- --grep @claim:card-data-excluded",
-    "sandbox": "A fresh public booking page is inspected for the absence of card fields; the captured booking request is asserted to contain no card data before navigation to the configured hosted payment origin."
+    "sandbox": "A fresh public booking page is inspected for the absence of card fields; the captured request contains no card data before navigation to the server-created Dodo checkout origin."
   },
   {
     "id": "delivery-connection-test",
@@ -165,6 +165,6 @@
     "claim": "The $29 per month practice price and current checkout state are shown plainly.",
     "where": "Landing practice plan",
     "test": "npm run test:e2e -- --grep @claim:practice-plan-price",
-    "sandbox": "A fresh landing page exposes the exact monthly price, the currently unavailable checkout state, and a working setup link."
+    "sandbox": "A fresh landing page exposes the exact monthly price, the Sociobot-hosted subscription checkout link, and a working setup link."
   }
 ]

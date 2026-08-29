@@ -12,7 +12,9 @@
   },
   "secrets": {
     "CONTACT_ENCRYPTION_KEY": "booking-recovery-loop-contact-encryption-key",
-    "DATABASE_URL": "booking-recovery-loop-database-url"
+    "DATABASE_URL": "booking-recovery-loop-database-url",
+    "DELIVERY_PROVIDER_TOKEN": "booking-recovery-loop-delivery-provider-token",
+    "DELIVERY_CALLBACK_SECRET": "booking-recovery-loop-delivery-callback-secret"
   },
   "scale": {
     "minReplicas": 1,
@@ -22,6 +24,12 @@
     "PORT": "8080",
     "DATABASE_URL": "secretref:database-url",
     "CONTACT_ENCRYPTION_KEY": "secretref:contact-encryption-key",
+    "DELIVERY_PROVIDER_URL": "operator-approved Sociobot/Azure relay URL",
+    "DELIVERY_PROVIDER_TOKEN": "secretref:delivery-provider-token",
+    "DELIVERY_CALLBACK_SECRET": "secretref:delivery-callback-secret",
+    "PUBLIC_BASE_URL": "https://booking-recovery-loop.sociobot.in",
+    "SOCIOBOT_BILLING_BASE_URL": "https://api.sociobot.in/api/v1",
+    "SOCIOBOT_BOOKING_PRODUCT_SLUG": "booking-recovery-loop-deposit",
     "REQUIRE_SHARED_DATABASE": "1"
   },
   "reason": "Production uses the shared PostgreSQL database/schema and a shared contact-encryption secret. Multiple replicas therefore read, delete, schedule, and rate-limit against the same durable customer-data boundary; SQLite remains local-only for no-env development and tests."
