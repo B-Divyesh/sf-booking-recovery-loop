@@ -430,11 +430,25 @@ async fn main() {
             "dist".to_owned()
         }
     });
+    let uses_postgres = database_url.starts_with("postgres");
     let pool = AnyPoolOptions::new()
         .max_connections(if database_url.starts_with("sqlite:") {
             1
         } else {
             10
+        })
+        .after_connect(move |connection, _| {
+            Box::pin(async move {
+                // PgBouncer may hand a different physical connection to each
+                // request. Set the tenant schema on every acquired PostgreSQL
+                // connection instead of relying on a startup URL option.
+                if uses_postgres {
+                    sqlx::query("SET search_path TO booking_recovery_loop, public")
+                        .execute(&mut *connection)
+                        .await?;
+                }
+                Ok(())
+            })
         })
         .connect(&database_url)
         .await
