@@ -127,9 +127,9 @@
   },
   {
     "id": "practice-plan-price",
-    "claim": "The practice plan costs $29 per month and opens the Sociobot checkout.",
+    "claim": "The $29 per month practice price and current checkout state are shown plainly.",
     "where": "Landing practice plan",
     "test": "npm run test:e2e -- --grep @claim:practice-plan-price",
-    "sandbox": "A fresh landing page exposes the exact monthly price and a checkout link for this product at the Sociobot billing API."
+    "sandbox": "A fresh landing page exposes the exact monthly price, the currently unavailable checkout state, and a working setup link."
   }
 ]

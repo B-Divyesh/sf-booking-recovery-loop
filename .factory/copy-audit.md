@@ -27,9 +27,8 @@ No item contains a banned marketing word.
 | 12 | It is not a CRM, a marketplace, or a tool for bulk messages. | Pass |
 | 5 | Read how booking data is handled | Pass |
 | 4 | Create a practice workspace | Pass |
-| 10 | $29 per month for one practice with one to five practitioners. | Pass |
+| 13 | Recovery Loop Practice is $29 per month for one practice with one to five practitioners. | Pass |
 | 13 | Publish one session page, record email or SMS consent, and review delivery receipts. | Pass |
-| 3 | Start $29/month plan | Pass |
 | 4 | Set up your practice | Pass |
 
 Read-aloud result: the first breath states the job, audience, and sample action.

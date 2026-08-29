@@ -127,9 +127,10 @@ function homeContent(): string {
         <h2 id="plan-title">Create a practice workspace</h2>
       </div>
       <div class="plan-copy">
-        <p>$29 per month for one practice with one to five practitioners.</p>
+        <p>Recovery Loop Practice is $29 per month for one practice with one to five practitioners.</p>
         <p>Publish one session page, record email or SMS consent, and review delivery receipts.</p>
-        <div class="button-row"><a class="button button-primary" href="https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout" data-external="true">Start $29/month plan</a><a class="button button-secondary" href="/start">Set up your practice</a></div>
+        <p class="action-note">Subscription checkout is not available yet. You can set up a practice workspace now.</p>
+        <div class="button-row"><a class="button button-primary" href="/start">Set up your practice</a></div>
       </div>
     </section>`;
 }

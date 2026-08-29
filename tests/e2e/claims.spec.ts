@@ -135,13 +135,11 @@ test("@claim:sample-three-bookings opens one-click sample data", async ({ page }
   await expect(ticketFor(page, "Maya Patel")).toContainText("Needs a follow-up");
 });
 
-test("@claim:practice-plan-price shows the priced Sociobot plan", async ({ page }) => {
+test("@claim:practice-plan-price shows the priced plan and its current checkout state", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("$29 per month for one practice with one to five practitioners.")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Start $29/month plan" })).toHaveAttribute(
-    "href",
-    "https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout"
-  );
+  await expect(page.getByText("Recovery Loop Practice is $29 per month for one practice with one to five practitioners.")).toBeVisible();
+  await expect(page.getByText("Subscription checkout is not available yet. You can set up a practice workspace now.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Set up your practice" }).last()).toHaveAttribute("href", "/start");
 });
 
 test("@claim:practice-publish creates a private workspace and public page", async ({ page }) => {
