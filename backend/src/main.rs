@@ -31,8 +31,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 const GENERAL_BURST: u32 = 40;
 const WRITE_BURST: u32 = 12;
 const WRITE_REPLENISH_SECONDS: u64 = 60;
-const SHARED_API_REQUESTS_PER_SECOND: i64 = 40;
-const SHARED_WRITE_REQUESTS_PER_MINUTE: i64 = 12;
+const SHARED_API_REQUESTS_PER_SECOND: i32 = 40;
+const SHARED_WRITE_REQUESTS_PER_MINUTE: i32 = 12;
 
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -273,7 +273,9 @@ async fn shared_api_rate_limit(
             "1".to_owned(),
         )
     };
-    let hits = sqlx::query_scalar::<_, i64>(
+    // PostgreSQL stores this column as INTEGER (i32), while SQLite's dynamic
+    // integer type had masked the wrong i64 decoder in local-only testing.
+    let hits = sqlx::query_scalar::<_, i32>(
         "INSERT INTO api_rate_windows (client_key, window_start, hits) VALUES (?, ?, 1) \
          ON CONFLICT (client_key, window_start) DO UPDATE SET hits = api_rate_windows.hits + 1 \
          RETURNING hits",
