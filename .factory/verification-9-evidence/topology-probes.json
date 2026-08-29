@@ -1,0 +1,33 @@
+{
+  "verifiedAt": "2026-08-29T13:07:00Z",
+  "baseUrl": "https://booking-recovery-loop.sociobot.in",
+  "method": "Fresh Playwright request contexts were used to force independent TCP connections while every request carried the same first X-Forwarded-For client value.",
+  "writeLimit": {
+    "requests": 40,
+    "elapsedMs": 373,
+    "statuses": { "201": 36, "429": 4 },
+    "retryAfter": ["60"],
+    "advertisedLimit": ["12"]
+  },
+  "readLimit": {
+    "requests": 160,
+    "elapsedMs": 704,
+    "statuses": { "200": 120, "429": 40 },
+    "retryAfter": ["1"],
+    "advertisedLimit": ["40"]
+  },
+  "resetRevocation": {
+    "readsBeforeReset": { "200": 24 },
+    "workspaceIdsBeforeReset": [
+      "01a04da0-c517-73d1-8e4a-c15d551cee3c",
+      "01a04da0-c4e5-72e2-9a1f-88c89c44e942",
+      "01a04da0-c541-7a42-918a-86716b9b7c13"
+    ],
+    "resetStatus": 200,
+    "oldTokenReadsAfterReset": { "200": 24, "404": 12 },
+    "stillLiveWorkspaceIds": [
+      "01a04da0-c541-7a42-918a-86716b9b7c13",
+      "01a04da0-c4e5-72e2-9a1f-88c89c44e942"
+    ]
+  }
+}
