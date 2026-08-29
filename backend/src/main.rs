@@ -611,6 +611,12 @@ async fn main() {
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         loop {
             interval.tick().await;
+            if routes::demo::purge_expired(&scheduler_state.pool)
+                .await
+                .is_err()
+            {
+                tracing::warn!("expired demo cleanup could not run");
+            }
             if routes::practice::run_due_jobs(&scheduler_state, chrono::Utc::now().timestamp())
                 .await
                 .is_err()

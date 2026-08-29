@@ -10,7 +10,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::{AnyPool, FromRow};
+use sqlx::{AnyPool, FromRow, QueryBuilder};
 use uuid::Uuid;
 
 use crate::AppState;
@@ -182,10 +182,7 @@ pub(crate) async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<DemoEnvelope>), ApiError> {
-    let _guard = state.demo_lock.lock().await;
     let idempotency_key = idempotency_key(&headers)?;
-    purge_expired(&state.pool).await?;
-    reject_reused_key(&state.pool, &idempotency_key).await?;
     let envelope = seed_workspace(&state.pool, idempotency_key).await?;
     Ok((StatusCode::CREATED, Json(envelope)))
 }
@@ -207,7 +204,6 @@ pub(crate) async fn reset(
     let token = workspace_token(&headers)?.to_owned();
     let idempotency_key = idempotency_key(&headers)?;
     let current = load_workspace_row(&state.pool, &token).await?;
-    reject_reused_key(&state.pool, &idempotency_key).await?;
 
     let envelope = seed_workspace(&state.pool, idempotency_key).await?;
     sqlx::query("UPDATE demo_workspaces SET expires_at = 0 WHERE id = $1 AND is_demo = 1")
@@ -336,12 +332,12 @@ async fn seed_workspace(pool: &AnyPool, idempotency_key: String) -> Result<DemoE
     let token_hash = token_hash(&token);
     let mut transaction = pool.begin().await.map_err(|_| ApiError::internal())?;
 
-    sqlx::query(
+    let inserted_workspace = sqlx::query(
         "INSERT INTO demo_workspaces \
          (id, token_hash, idempotency_key, is_demo, practice_name, practice_timezone, \
           service_name, service_duration_minutes, deposit_cents, currency, created_at, expires_at) \
          VALUES ($1, $2, $3, 1, 'North Star Coaching', 'Europe/London', \
-                 '45-minute focus session', 45, 3500, 'GBP', $4, $5)",
+                 '45-minute focus session', 45, 3500, 'GBP', $4, $5) ON CONFLICT DO NOTHING",
     )
     .bind(&workspace_id)
     .bind(&token_hash)
@@ -351,6 +347,12 @@ async fn seed_workspace(pool: &AnyPool, idempotency_key: String) -> Result<DemoE
     .execute(&mut *transaction)
     .await
     .map_err(|_| ApiError::internal())?;
+    if inserted_workspace.rows_affected() != 1 {
+        return Err(ApiError::conflict(
+            "request_already_used",
+            "That demo request was already used. Start a fresh demo request.",
+        ));
+    }
 
     sqlx::query("INSERT INTO demo_token_aliases (token_hash, workspace_id) VALUES ($1, $2)")
         .bind(&token_hash)
@@ -395,26 +397,33 @@ async fn seed_workspace(pool: &AnyPool, idempotency_key: String) -> Result<DemoE
         ),
     ];
 
-    for (suffix, name, scheduled, status, reason, consent, wording, recorded, outcome) in attempts {
-        sqlx::query(
-            "INSERT INTO booking_attempts \
-             (id, workspace_id, client_name, scheduled_for, state, reason, email_consent, \
-              consent_wording, consent_recorded_at, outcome) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-        )
-        .bind(format!("{workspace_id}:{suffix}"))
-        .bind(&workspace_id)
-        .bind(name)
-        .bind(scheduled)
-        .bind(status)
-        .bind(reason)
-        .bind(i64::from(consent))
-        .bind(wording)
-        .bind(recorded)
-        .bind(outcome)
+    let mut insert_attempts = QueryBuilder::new(
+        "INSERT INTO booking_attempts \
+         (id, workspace_id, client_name, scheduled_for, state, reason, email_consent, \
+          consent_wording, consent_recorded_at, outcome) ",
+    );
+    insert_attempts.push_values(
+        attempts,
+        |mut values,
+         (suffix, name, scheduled, status, reason, consent, wording, recorded, outcome)| {
+            values
+                .push_bind(format!("{workspace_id}:{suffix}"))
+                .push_bind(&workspace_id)
+                .push_bind(name)
+                .push_bind(scheduled)
+                .push_bind(status)
+                .push_bind(reason)
+                .push_bind(i64::from(consent))
+                .push_bind(wording)
+                .push_bind(recorded)
+                .push_bind(outcome);
+        },
+    );
+    insert_attempts
+        .build()
         .execute(&mut *transaction)
         .await
         .map_err(|_| ApiError::internal())?;
-    }
 
     let completed_attempt = format!("{workspace_id}:alex-completed");
     let message_id = Uuid::now_v7().to_string();
@@ -447,36 +456,84 @@ async fn seed_workspace(pool: &AnyPool, idempotency_key: String) -> Result<DemoE
         .commit()
         .await
         .map_err(|_| ApiError::internal())?;
-    load_existing_workspace(pool, &token).await
+    Ok(seeded_envelope(workspace_id, token, now, expires_at))
 }
 
-async fn reject_reused_key(pool: &AnyPool, key: &str) -> Result<(), ApiError> {
-    let exists = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM demo_workspaces WHERE idempotency_key = $1",
-    )
-    .bind(key)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::internal())?;
-    if exists > 0 {
-        return Err(ApiError::conflict(
-            "request_already_used",
-            "That demo request was already used. Start a fresh demo request.",
-        ));
+fn seeded_envelope(workspace_id: String, token: String, now: i64, expires_at: i64) -> DemoEnvelope {
+    let maya_id = format!("{workspace_id}:maya-unfinished");
+    let jordan_id = format!("{workspace_id}:jordan-no-consent");
+    let alex_id = format!("{workspace_id}:alex-completed");
+    DemoEnvelope {
+        workspace_token: token,
+        workspace: DemoWorkspace {
+            id: workspace_id,
+            expires_at: timestamp(expires_at),
+            practice: Practice {
+                name: "North Star Coaching".to_owned(),
+                timezone: "Europe/London".to_owned(),
+            },
+            service: Service {
+                name: "45-minute focus session".to_owned(),
+                duration_minutes: 45,
+                deposit_cents: 3500,
+                currency: "GBP".to_owned(),
+            },
+            attempts: vec![
+                Attempt {
+                    id: maya_id,
+                    client_name: "Maya Patel".to_owned(),
+                    scheduled_for: timestamp(now + 2 * 24 * 60 * 60),
+                    state: "unfinished".to_owned(),
+                    reason: "Left before the sample deposit step".to_owned(),
+                    consent: Consent {
+                        email: true,
+                        wording: Some(CONSENT_WORDING.to_owned()),
+                        recorded_at: Some(timestamp(now - 18 * 60)),
+                    },
+                    outcome: None,
+                    receipts: Vec::new(),
+                },
+                Attempt {
+                    id: jordan_id,
+                    client_name: "Jordan Lee".to_owned(),
+                    scheduled_for: timestamp(now + 3 * 24 * 60 * 60),
+                    state: "unfinished".to_owned(),
+                    reason: "Email consent was not recorded".to_owned(),
+                    consent: Consent {
+                        email: false,
+                        wording: None,
+                        recorded_at: None,
+                    },
+                    outcome: None,
+                    receipts: Vec::new(),
+                },
+                Attempt {
+                    id: alex_id,
+                    client_name: "Alex Morgan".to_owned(),
+                    scheduled_for: timestamp(now + 4 * 24 * 60 * 60),
+                    state: "completed".to_owned(),
+                    reason: "Deposit received and booking confirmed".to_owned(),
+                    consent: Consent {
+                        email: true,
+                        wording: Some(CONSENT_WORDING.to_owned()),
+                        recorded_at: Some(timestamp(now - 2 * 24 * 60 * 60)),
+                    },
+                    outcome: Some("Booking confirmed".to_owned()),
+                    receipts: vec![Receipt {
+                        channel: "email".to_owned(),
+                        status: "delivered".to_owned(),
+                        detail: "Sample confirmation reached the demo mailbox.".to_owned(),
+                        occurred_at: timestamp(now - 24 * 60 * 60),
+                        simulated: true,
+                    }],
+                },
+            ],
+        },
     }
-    Ok(())
 }
 
 async fn load_workspace(pool: &AnyPool, token: &str) -> Result<DemoEnvelope, ApiError> {
     let row = load_workspace_row(pool, token).await?;
-    workspace_from_row(pool, token, row).await
-}
-
-async fn load_existing_workspace(pool: &AnyPool, token: &str) -> Result<DemoEnvelope, ApiError> {
-    let row = query_workspace_row(pool, token)
-        .await?
-        .filter(|row| row.is_demo == 1 && row.expires_at > Utc::now().timestamp())
-        .ok_or_else(ApiError::not_found)?;
     workspace_from_row(pool, token, row).await
 }
 
@@ -657,7 +714,7 @@ async fn hydrate_workspace(
     Ok(())
 }
 
-async fn purge_expired(pool: &AnyPool) -> Result<(), ApiError> {
+pub(crate) async fn purge_expired(pool: &AnyPool) -> Result<(), ApiError> {
     sqlx::query(
         "DELETE FROM demo_workspaces WHERE is_demo = 1 AND expires_at <= $1 AND created_at <= $2",
     )

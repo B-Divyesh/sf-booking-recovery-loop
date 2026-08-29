@@ -27,8 +27,9 @@ An existing workspace is selected with all three conditions:
 3. `expires_at` is still in the future.
 
 The API test inserts a non-demo practice fixture and proves a demo request
-cannot read it. Expired demo workspaces are rejected and purged when a new
-workspace is created.
+cannot read it. Expired demo workspaces are rejected immediately and purged by
+the service's 30-second worker, so cleanup never delays the first sample
+response.
 
 Factory ingress may send requests to different container replicas. Production
 uses the shared PostgreSQL store declared in `deploy/containerapp.m1.json`, so
