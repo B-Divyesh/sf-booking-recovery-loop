@@ -24,7 +24,7 @@
     "id": "demo-no-account-payment",
     "claim": "The sample opens without an account or payment.",
     "where": "Landing first screen and terms",
-    "test": "npm run test:e2e -- --grep @claim:demo-no-account-payment",
+    "test": "npm run test:claim:e2e -- --grep @claim:demo-no-account-payment",
     "sandbox": "A fresh browser opens the complete seeded demo and records that no login, checkout, or payment request occurs."
   },
   {
@@ -38,42 +38,42 @@
     "id": "consent-gates-recovery",
     "claim": "A recovery message needs recorded contact consent.",
     "where": "Demo recovery action panel",
-    "test": "npm run test:e2e -- --grep @claim:consent-gates-recovery",
+    "test": "npm run test:claim:e2e -- --grep @claim:consent-gates-recovery",
     "sandbox": "Demo data includes one unfinished attempt without email consent. Attempting recovery leaves no outbound message in its case and shows the consent explanation."
   },
   {
     "id": "demo-recovery-receipt",
     "claim": "The demo shows a receipt after a sample recovery action.",
     "where": "Demo recovery case detail",
-    "test": "npm run test:e2e -- --grep @claim:demo-recovery-receipt",
+    "test": "npm run test:claim:e2e -- --grep @claim:demo-recovery-receipt",
     "sandbox": "Fresh demo selects the consented unfinished booking, runs the accelerated sample recovery, and asserts a timestamped simulated email receipt and case outcome are visible."
   },
   {
     "id": "demo-no-external-requests",
     "claim": "Demo does not contact payment, messaging, sign-in, or AI services.",
     "where": "Demo banner and privacy page",
-    "test": "npm run test:e2e -- --grep @claim:demo-no-external-requests",
+    "test": "npm run test:claim:e2e -- --grep @claim:demo-no-external-requests",
     "sandbox": "Playwright records every request for the full fresh-demo flow and asserts each URL is same-origin; no request is made to Stripe, a messaging provider, Entra, Sociobot billing, or the AI gateway."
   },
   {
     "id": "sample-three-bookings",
     "claim": "The one-click sample opens three fictional bookings.",
     "where": "Landing first screen and README",
-    "test": "npm run test:e2e -- --grep @claim:sample-three-bookings",
+    "test": "npm run test:claim:e2e -- --grep @claim:sample-three-bookings",
     "sandbox": "A fresh browser enters through /?demo=1, sees the persistent demo banner, and observes exactly three named sample booking tickets."
   },
   {
     "id": "practice-publish",
     "claim": "A practice can create a private workspace and publish one paid-session page.",
     "where": "Landing, practice setup, README",
-    "test": "npm run test:e2e -- --grep @claim:practice-publish",
+    "test": "npm run test:claim:e2e -- --grep @claim:practice-publish",
     "sandbox": "A fresh browser creates a practice, receives a private access token, opens its recovery queue, follows its unique public URL, and observes the configured session and deposit."
   },
   {
     "id": "booking-consent-record",
     "claim": "A booking records channel consent before opening hosted payment.",
     "where": "Public booking page, privacy page, README",
-    "test": "npm run test:e2e -- --grep @claim:booking-consent-record",
+    "test": "npm run test:claim:e2e -- --grep @claim:booking-consent-record",
     "sandbox": "A clean practice receives a public booking with explicit email consent, the browser opens its server-created Dodo checkout, and the owner API shows timestamped consent and awaiting-deposit state."
   },
   {
@@ -150,7 +150,7 @@
     "id": "card-data-excluded",
     "claim": "The booking form has no card fields; payment card details stay on the practice’s hosted payment page.",
     "where": "Booking page, privacy page, terms",
-    "test": "npm run test:e2e -- --grep @claim:card-data-excluded",
+    "test": "npm run test:claim:e2e -- --grep @claim:card-data-excluded",
     "sandbox": "A fresh public booking page is inspected for the absence of card fields; the captured request contains no card data before navigation to the server-created Dodo checkout origin."
   },
   {
@@ -164,7 +164,7 @@
     "id": "practice-plan-price",
     "claim": "The $29 per month practice price and current checkout state are shown plainly.",
     "where": "Landing practice plan",
-    "test": "npm run test:e2e -- --grep @claim:practice-plan-price",
+    "test": "npm run test:claim:e2e -- --grep @claim:practice-plan-price",
     "sandbox": "A fresh landing page exposes the exact monthly price, the Sociobot-hosted subscription checkout link, and a working setup link."
   },
   {

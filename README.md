@@ -76,11 +76,14 @@ npm run check:size
 ## Deploy
 
 ```sh
-docker build -f Dockerfile --build-arg BUILD_SHA=local -t booking-recovery-loop .
-docker run --rm -p 8080:8080 booking-recovery-loop
+./scripts/deploy-container.sh
 ```
 
-Set `PORT` when you need a port other than 8080. Use `/health` for a health
+This factory-only command builds the image, creates or reuses the stable
+contact-encryption secret, injects the managed PostgreSQL URL, runs migrations
+once, and applies every value in `deploy/containerapp.m1.json`. Do not use the
+generic port-only deploy command: it discards the shared-store boundary. The
+app remains runnable locally with only `PORT`; use `/health` for a health
 check.
 
 ## License

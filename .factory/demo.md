@@ -17,8 +17,8 @@ All names and records are fictional. No account or manual setup is required.
 `POST /api/v1/demo/workspaces` creates a UUIDv7 workspace and returns a
 portable demo token. It contains 256 random bits, its issue time, and a
 `fresh` sample-state marker. It contains no customer or contact data. The
-browser stores it under `demo:workspace-token`; each database replica stores
-only its SHA-256 hash.
+browser stores it under `demo:workspace-token`; the shared production database
+stores only its SHA-256 hash.
 
 An existing workspace is selected with all three conditions:
 
@@ -30,12 +30,14 @@ The API test inserts a non-demo practice fixture and proves a demo request
 cannot read it. Expired demo workspaces are rejected and purged when a new
 workspace is created.
 
-Factory ingress may send two requests to different container replicas. A
-valid, unexpired portable token can therefore recreate only the fixed
-fictional seed on a new replica. A successful sample recovery rotates its
-marker to `recovered`, so a later replica recreates the simulated receipt too.
-The token never identifies or authorizes a real workspace. A three-database
-API test covers create, recover, and reload across separate replicas.
+Factory ingress may send requests to different container replicas. Production
+uses the shared PostgreSQL store declared in `deploy/containerapp.m1.json`, so
+each replica resolves the same token hash and workspace. A reset expires that
+workspace in the shared store; every later old-token read returns `404`.
+Portable-token hydration exists only for a local, intentionally isolated demo
+database and can recreate only the fixed fictional seed. The token never
+identifies or authorizes a real workspace. The exact cross-replica reset and
+rate-limit regressions run against four routers sharing one durable store.
 
 The demo uses dedicated SQLite tables and routes. Real practice records use
 separate tables, owner tokens, and encrypted contact fields. Migration
@@ -59,8 +61,8 @@ or receipt is created.
 ## Reset and expiry
 
 **Reset demo** creates a new token and fresh seed, replaces the browser token,
-and expires the prior workspace on the serving replica. **Start for real**
-removes the browser token. Inaccessible server copies expire after 24 hours.
+and expires the prior workspace in the shared store. **Start for real** removes
+the browser token. Inaccessible server copies expire after 24 hours.
 
 The API routes are limited by client IP. The first `X-Forwarded-For` hop is
 used behind factory ingress. Write routes allow 12 immediate requests per

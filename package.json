@@ -12,6 +12,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
+    "test:claim:e2e": "npm ci --ignore-scripts && playwright test",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:deployment": "node scripts/check-deployment.mjs",
