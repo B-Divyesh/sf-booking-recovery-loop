@@ -34,6 +34,12 @@ const WRITE_BURST: u32 = 12;
 const WRITE_REPLENISH_SECONDS: u64 = 60;
 const SHARED_API_REQUESTS_PER_SECOND: i32 = 40;
 const SHARED_WRITE_REQUESTS_PER_MINUTE: i32 = 12;
+fn postgres_schema_setup_statements() -> [&'static str; 2] {
+    [
+        "CREATE SCHEMA IF NOT EXISTS booking_recovery_loop",
+        "SET search_path TO booking_recovery_loop, public",
+    ]
+}
 
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -517,11 +523,15 @@ async fn main() {
             Box::pin(async move {
                 // PgBouncer may hand a different physical connection to each
                 // request. Set the tenant schema on every acquired PostgreSQL
-                // connection instead of relying on a startup URL option.
+                // connection instead of relying on a startup URL option. The
+                // shared factory database has a populated public schema for
+                // other products, so create this product's isolated schema
+                // before selecting it; PostgreSQL otherwise falls back to
+                // public and SQLx sees another product's migration history.
                 if uses_postgres {
-                    sqlx::query("SET search_path TO booking_recovery_loop, public")
-                        .execute(&mut *connection)
-                        .await?;
+                    for statement in postgres_schema_setup_statements() {
+                        sqlx::query(statement).execute(&mut *connection).await?;
+                    }
                 }
                 Ok(())
             })
@@ -664,4 +674,18 @@ async fn shutdown_signal() {
         () = terminate => {},
     }
     info!("shutdown signal received");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn postgres_connections_create_and_select_the_product_schema_before_migrating() {
+        assert_eq!(
+            super::postgres_schema_setup_statements(),
+            [
+                "CREATE SCHEMA IF NOT EXISTS booking_recovery_loop",
+                "SET search_path TO booking_recovery_loop, public",
+            ]
+        );
+    }
 }

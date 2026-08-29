@@ -81,10 +81,10 @@ npm run check:size
 
 This factory-only command builds the image, creates or reuses the stable
 contact-encryption secret, injects the managed PostgreSQL URL, runs migrations
-once, and applies every value in `deploy/containerapp.m1.json`. Do not use the
-generic port-only deploy command: it discards the shared-store boundary. The
-app remains runnable locally with only `PORT`; use `/health` for a health
-check.
+once in the isolated `booking_recovery_loop` database schema, and applies every
+value in `deploy/containerapp.m1.json`. Do not use the generic port-only deploy
+command: it discards the shared-store boundary. The app remains runnable locally
+with only `PORT`; use `/health` for a health check.
 
 ## License
 
