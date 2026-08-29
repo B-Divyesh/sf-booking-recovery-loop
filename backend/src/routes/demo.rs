@@ -10,7 +10,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::{AnyPool, FromRow, QueryBuilder};
+use sqlx::{AnyPool, FromRow};
 use uuid::Uuid;
 
 use crate::AppState;
@@ -397,33 +397,26 @@ async fn seed_workspace(pool: &AnyPool, idempotency_key: String) -> Result<DemoE
         ),
     ];
 
-    let mut insert_attempts = QueryBuilder::new(
-        "INSERT INTO booking_attempts \
-         (id, workspace_id, client_name, scheduled_for, state, reason, email_consent, \
-          consent_wording, consent_recorded_at, outcome) ",
-    );
-    insert_attempts.push_values(
-        attempts,
-        |mut values,
-         (suffix, name, scheduled, status, reason, consent, wording, recorded, outcome)| {
-            values
-                .push_bind(format!("{workspace_id}:{suffix}"))
-                .push_bind(&workspace_id)
-                .push_bind(name)
-                .push_bind(scheduled)
-                .push_bind(status)
-                .push_bind(reason)
-                .push_bind(i64::from(consent))
-                .push_bind(wording)
-                .push_bind(recorded)
-                .push_bind(outcome);
-        },
-    );
-    insert_attempts
-        .build()
+    for (suffix, name, scheduled, status, reason, consent, wording, recorded, outcome) in attempts {
+        sqlx::query(
+            "INSERT INTO booking_attempts \
+             (id, workspace_id, client_name, scheduled_for, state, reason, email_consent, \
+              consent_wording, consent_recorded_at, outcome) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        )
+        .bind(format!("{workspace_id}:{suffix}"))
+        .bind(&workspace_id)
+        .bind(name)
+        .bind(scheduled)
+        .bind(status)
+        .bind(reason)
+        .bind(i64::from(consent))
+        .bind(wording)
+        .bind(recorded)
+        .bind(outcome)
         .execute(&mut *transaction)
         .await
         .map_err(|_| ApiError::internal())?;
+    }
 
     let completed_attempt = format!("{workspace_id}:alex-completed");
     let message_id = Uuid::now_v7().to_string();
