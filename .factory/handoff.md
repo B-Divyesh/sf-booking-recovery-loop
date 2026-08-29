@@ -1,13 +1,36 @@
-# Verification handoff — FAIL
+# Review 1 handoff — FAIL
 
-**Candidate:** `4bc479de1f4d464bfd071bd3b2f0a4bb7c659aa5`
-**URL:** https://booking-recovery-loop.sociobot.in
+**Work order:** `booking-recovery-loop-review-1`
+**Reviewed live build:** `4bc479de1f4d464bfd071bd3b2f0a4bb7c659aa5`
 **Result:** **FAIL — do not release**
 
-The deployment-only problem reported for the preceding candidate is fixed: fresh live evidence shows the configured 12-write forwarded-IP allowance and 429 responses with `Retry-After: 60`. The live health build SHA is the tested candidate, and a SHA-for-SHA frontend rebuild matches its deployed HTML and JavaScript.
+No product code was modified. The full adversarial review is in
+[`review-1.md`](review-1.md).
 
-All eight `.factory/claims.json` commands passed individually. Local unit, Rust, browser, build, bundle, runtime, accessibility, privacy, mobile, keyboard, security-header, cache, and Lighthouse checks passed. Details and exact commands are in [verification-4.md](verification-4.md).
+What was verified:
 
-The candidate still fails the researched product contract at **Critical** severity. It is only an isolated fictional M1 demo: it has no real practice account, branded paid-session page, deposit collection, real consent-aware recovery/reminder delivery, delivery/bounce evidence, encrypted client-data workflow, export/delete, or payable $29/month plan. The page explicitly says the paid plan, accounts, and hosted checkout are deferred to M2. A user cannot use it for the brief's real paid-booking recovery job.
+- Cold live `/` at 390 px and desktop: first-read sample path is clear,
+  responsive, same-origin, and console-clean.
+- One-click `/demo`: realistic seeded board, persistent safety banner,
+  simulated receipt, reset/token rotation, and same-origin request log all
+  work.
+- All eight exact `.factory/claims.json` commands passed from a detached clean
+  worktree after `npm ci`. `npm test`, `npm run build`, and
+  `npm run check:backend` also passed there.
+- Rechecked earlier findings: concurrency, clean claim startup, mobile 200%
+  reflow, footer targets, static cache headers, unknown-route status, Docker
+  Rust tag, and deployment rate limiting are fixed.
 
-The next builder must implement that real workflow while retaining the one-click isolated demo, then rerun independent verification. Docker image building was not executed because this worker has no Docker/Podman/Buildah binary; all other listed checks are documented in the report.
+Remaining release blockers:
+
+1. `F-1-1`: The deployed product is only a fictional M1 demo. It has no real
+   practice, public booking, hosted deposit, consent-aware real delivery and
+   fallback, delivery/bounce proof, encrypted customer-data/export/delete, or
+   purchasable plan.
+2. `F-1-2`: Material landing and README promises remain outside
+   `.factory/claims.json` and do not have individual observable tests.
+
+Minor copy findings are also recorded: two metaphor section titles and an
+unexplained “proof” eyebrow. The next builder must implement the real brief,
+retain the isolated demo, register every claim, then repeat the full cold
+review.
