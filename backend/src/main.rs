@@ -35,7 +35,7 @@ const WRITE_REPLENISH_SECONDS: u64 = 60;
 const READ_REPLENISH_SECONDS: u64 = 60;
 const SHARED_API_REQUESTS_PER_SECOND: i32 = 40;
 const SHARED_WRITE_REQUESTS_PER_MINUTE: i32 = 12;
-const READ_RATE_RESERVATION: i32 = 10;
+const READ_RATE_RESERVATION: i32 = 4;
 
 #[derive(Clone, Copy)]
 pub(crate) struct LocalRateWindow {
@@ -375,7 +375,7 @@ async fn shared_api_rate_limit(
     };
     let local_key = format!("{key}:{window_start}");
     let reservation = if is_write { 1 } else { READ_RATE_RESERVATION };
-    // A bounded local reservation turns a large burst into a handful of
+    // A small local reservation turns a large burst into a bounded number of
     // shared database updates rather than one update per request. The
     // database still grants every block atomically, so independent replicas
     // cannot exceed the global 40-read/12-write allowance. Holding this short
@@ -490,10 +490,9 @@ async fn reserve_rate_block_with_remainder(
     limit: i32,
 ) -> Result<i32, sqlx::Error> {
     let granted = reserve_rate_block(pool, key, window_start, reservation, limit).await?;
-    // Four test/service replicas can reserve ten reads each. A smaller final
-    // remainder remains available if deployment topology or traffic order
-    // leaves fewer than ten slots. Writes already reserve one and skip this
-    // path.
+    // A smaller final remainder remains available if deployment topology or
+    // traffic order leaves fewer than a complete block. Writes already reserve
+    // one and skip this path.
     if granted == 0 && reservation > 1 {
         reserve_rate_block(pool, key, window_start, 1, limit).await
     } else {
