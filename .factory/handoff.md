@@ -1,63 +1,51 @@
-# Polish 2 handoff — Booking Recovery Loop
+# Review 3 handoff — Booking Recovery Loop
 
-**Work order:** `booking-recovery-loop-polish-2`  
-**Repair commit:** `7e7194b0f1a0d4f0585e55fadf324bbe2ba903b0`
+**Work order:** `booking-recovery-loop-review-3`
 
-## Delivered
+**Reviewed commit/live build:** `256bde53b0e8107421ceda018d4b3a61203ce894`
 
-- Durable automatic abandoned-booking recovery after 15 minutes.
-- Durable session reminders after authenticated payment confirmation.
-- Consent withdrawal stops queued delivery; provider failures retry and remain visible.
-- Isolated `?demo=1` sample, persistent banner, reset, legal routes, metadata,
-  route focus, mobile layout, accessibility, and product-specific twilight rail UI.
-- Claims ledger expanded to 19 executable entries and plain-word consent wording.
-- Exact $29/month price is visible. Checkout is truthfully marked unavailable
-  because the factory billing registry currently returns 404 for this slug.
+**Verdict:** **FAIL**
 
-## Verification
+## What was done
 
-From a clean clone (`/tmp/booking-recovery-clean.7Jf6LM`):
+- Reviewed the live product cold at 390 × 844 and 1440 × 1000.
+- Exercised the one-click demo, recovery receipt, reset, exit, storage
+  isolation, request origins, and console.
+- Ran all 19 commands in `.factory/claims.json` from a clean clone.
+- Ran the complete unit, backend, deployment, browser, build, and size gates.
+- Crawled all rendered internal links and checked metadata, 404 behavior,
+  route focus/back behavior, live axe results, and the factory URL verifier.
+- Rechecked every earlier review, polish, handoff, and verification finding in
+  the live deployment and source.
+- Audited every landing-page and README sentence, heading, label, and action.
 
-```text
-npm ci                              passed, 0 vulnerabilities
-npm test                            10 passed
-npm run build                       passed; dist/ produced
-npm run check:backend               15 Rust tests passed
-npm run test:e2e                    26 Playwright tests passed
-npm run test:deployment             passed
-npm run check:size                  JS 12,316 B gzip; CSS 21,906 B raw
-```
+The full evidence and concrete fixes are in `.factory/review-3.md`. Product
+code was not modified.
 
-The claim commands in `.factory/claims.json` were executed individually from
-the repair tree; the full clean-clone browser suite includes every browser
-claim. Accessibility coverage uses axe on every public route, keyboard and
-skip-link use, 390 px reflow, 200% text reflow, focus, offline state, privacy
-request logging, and the designed HTTP 404. Local screenshots are in
-`.factory/evidence/polish-2-local/`.
-
-## Deploy and live check
-
-The container deployed through the factory work-order configuration. A cold
-live check at `https://booking-recovery-loop.sociobot.in` passed:
+## Verification summary
 
 ```text
-GET /health                         200; build 7e7194b0f1a0d4f0585e55fadf324bbe2ba903b0
-GET /missing-page                   404
-verify-url                          title/lang/h1/main/alts/buttons/console pass
-verify-url cold load                549 ms; zero console errors
-live 390 px ?demo=1                 banner, 3 tickets, no horizontal overflow
-live 390 px /                       $29 price, unavailable checkout state, legal links, no overflow
+19/19 declared claim commands passed from a clean clone
+npm test                  10 passed
+npm run check:backend     15 passed; rustfmt passed
+npm run test:deployment  passed
+npm run test:e2e          26 passed
+npm run build             passed; dist/ produced
+npm run check:size        JS 12,323 bytes gzip
+live verify-url           passed; zero console errors
+live axe                  zero violations at desktop and 390 px
+live internal link crawl  all rendered targets returned 200
+live missing route        designed 404 with HTTP 404
 ```
 
-Live evidence is in `.factory/evidence/polish-2-live/`, including the desktop
-and mobile screenshots, health response, 404 response, and verifier JSON.
-`@axe-core/cli` could not launch its own Chrome binary in this worker; the
-Playwright axe integration completed in the 26-test browser suite instead.
+## Remaining blockers
 
-## Known external boundary
+1. The deployed limiter advertises 12 writes but allowed 24 before returning
+   `429`, regressing the earlier production fix.
+2. Real setup still requires a customer-operated payment URL and delivery
+   webhook, while the advertised $29 checkout remains unavailable.
+3. The exact 15-minute recovery promise is absent from `claims.json`; its test
+   forces jobs due and never asserts that delay.
 
-The Sociobot billing product registration is factory-owned and currently
-returns `404` for this slug. This repair does not present a dead checkout link.
-Register the `$29/month` product with Sociobot billing to enable checkout.
-Practices also supply their own hosted deposit and delivery connections; card
-details never enter this product.
+Additional privacy and copy findings are recorded in the review. The tree was
+left buildable and only review documentation was changed.
