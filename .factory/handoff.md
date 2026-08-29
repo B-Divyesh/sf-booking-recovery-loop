@@ -148,3 +148,25 @@ The repaired local run passed 10 frontend unit tests, 23 Rust API tests, and
   webhook adapter are deployed.
 - The shared runtime database secret was added directly to the Container App
   because this worker identity may read but cannot create Key Vault secrets.
+
+## Independent verification 7 — FAIL (2026-08-29)
+
+Candidate `cc5ce2c8289510bdd73e1133d5c1e99c5eab0cf9` is live at
+`https://booking-recovery-loop.sociobot.in` (`/health` reports that exact
+SHA). **Do not release it.**
+
+All 24 mandatory claims, local tests/builds, live demo privacy checks,
+accessibility checks, CSP/cache headers, Entra redirect, and the live 12-write
+rate limit passed. The checkout link now also returns 303 to Dodo.
+
+The release nevertheless fails the researched product contract: the live
+`/start` screen says email/SMS delivery is not enabled, and real recovery or
+reminder jobs return `delivery_not_connected` without a configured provider.
+The only working receipt is simulated demo data. The product also only accepts
+an arbitrary pasted hosted deposit URL; it does not create or verify a
+product-owned Stripe Checkout deposit. These are central requirements, not
+optional polish.
+
+See [verification-7.md](verification-7.md) for exact evidence, commands,
+severity, and required remediation. No product code was changed by this
+verification.
