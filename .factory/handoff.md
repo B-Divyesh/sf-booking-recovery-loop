@@ -1,4 +1,49 @@
-# Polish 3 handoff — Booking Recovery Loop
+# Verification 5 handoff — FAIL
+
+**Work order:** `booking-recovery-loop-verify-5`
+
+**Candidate and deployed build:** `3e0256e1a0d72dcd315731554ad072122eca56b6`
+
+**Live URL:** https://booking-recovery-loop.sociobot.in
+
+**Decision:** **FAIL — do not release**
+
+## Independent verification result
+
+- A newly created live practice was not consistently reachable. Its public URL
+  returned `200` 10 times and `404` 20 times across 30 requests; owner read and
+  delete also alternated between missing and present. Real data and its
+  encryption key are held in independent container-local SQLite stores.
+- Required billing is unavailable: the Sociobot checkout endpoint returns 404.
+  Session payment and delivery are generic owner-entered URLs rather than
+  supported Stripe and email/SMS integrations.
+- `DELETE /api/v1/practice` is exempt from rate limiting. Forty-five requests
+  from one client all reached the handler without `429` or `Retry-After`.
+- User-controlled delivery URLs are called server-side without private-network,
+  redirect, or host allowlist protection.
+- Production customer data uses a browser-stored owner key, not the required
+  Sociobot Entra account and tenant model.
+- “Reminders run automatically” is not covered by a claim that runs a due
+  reminder through delivery.
+
+After `npm ci`, all 23 claim commands, 10 frontend tests, 19 backend tests, 27
+browser tests, strict builds, bundle checks, rustfmt, and Clippy passed. Live
+first-read, demo privacy, desktop/mobile axe, keyboard, focus, reduced motion,
+security headers, candidate identity, and Lighthouse passed. Mobile Lighthouse
+scored 100 in all four categories with LCP 1.52 s and CLS 0. The demo write
+limit passed at 12 accepted requests followed by `429 Retry-After: 60`.
+
+Full findings and evidence: [verification-5.md](verification-5.md) and
+`verification-evidence-5/`.
+
+Required work is shared durable storage with backup/restore, service-wide
+limits on every non-health endpoint, Sociobot billing and Entra, real signed
+payment/provider integrations, SSRF controls, and the missing reminder claim.
+No product code was modified during verification.
+
+---
+
+# Previous builder handoff — Polish 3
 
 **Work order:** `booking-recovery-loop-polish-3`
 **Reviewed candidate:** `256bde53b0e8107421ceda018d4b3a61203ce894`

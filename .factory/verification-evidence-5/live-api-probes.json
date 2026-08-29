@@ -1,0 +1,59 @@
+{
+  "verifiedAt": "2026-08-29T05:18:00Z",
+  "baseUrl": "https://booking-recovery-loop.sociobot.in",
+  "candidate": "3e0256e1a0d72dcd315731554ad072122eca56b6",
+  "practicePersistence": {
+    "path": "/api/v1/public/qa-boundary-1787980586224",
+    "requests": 30,
+    "statusCounts": {
+      "200": 10,
+      "404": 20
+    },
+    "sequence": [404, 404, 200, 200, 404, 404, 404, 404, 200, 200, 404, 404, 404, 404, 200, 200, 404, 404, 404, 404, 200, 200, 404, 404, 404, 404, 200, 200, 404, 404]
+  },
+  "practiceLifecycle": {
+    "create": 201,
+    "createAttempt": 201,
+    "immediateOwnerRead": 401,
+    "immediateDelete": 404,
+    "readAfterFailedDelete": 200,
+    "note": "The same credentials and record alternated across independent live stores. The full owner token was not retained."
+  },
+  "rateLimits": {
+    "demoWrite": {
+      "statuses": [201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 429],
+      "retryAfterOnThirteenth": "60"
+    },
+    "practiceDelete": {
+      "requests": 45,
+      "statusCounts": {"404": 45},
+      "retryAfter": null,
+      "xRateLimitWhitelisted": "true"
+    },
+    "concurrentRead": {
+      "requests": 200,
+      "statusCounts": {"404": 140, "429": 60},
+      "advertisedLimit": "40",
+      "retryAfterOn429": "0"
+    }
+  },
+  "validation": {
+    "shortPracticeName": 400,
+    "uppercaseSlug": 400,
+    "durationBelow15": 400,
+    "depositAbove1000000": 400,
+    "nonHttpsPaymentUrl": 400,
+    "missingConsent": 400,
+    "invalidConsentedEmail": 400,
+    "duplicateSlot": 409
+  },
+  "concurrency": {
+    "sameDemoRecoveryRequests": 8,
+    "statusCounts": {"200": 8},
+    "serverErrors": 0
+  },
+  "billing": {
+    "checkoutStatus": 404,
+    "checkoutBody": {"error": "enabled factory product", "status": 404}
+  }
+}

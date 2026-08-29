@@ -1,0 +1,12 @@
+{
+  "candidate": "3e0256e1a0d72dcd315731554ad072122eca56b6",
+  "healthStatus": 200,
+  "healthBuildSha": "3e0256e1a0d72dcd315731554ad072122eca56b6",
+  "localBuildEnvironment": "VITE_BUILD_SHA=3e0256e1a0d72dcd315731554ad072122eca56b6",
+  "files": {
+    "index.html": "bdd6659f4d02bc6dddb4284b062860647a3285a2898b0bd8e4dfd5231265c23f",
+    "assets/index-CWA8Fq-a.js": "6eb3db02bef64fd6955e4c42125536c33a76e51ef591dfebd955ba8b738463c2",
+    "assets/index-L0aFYqrs.css": "6851819722430a3853bf6db0241a8f79bca6f97b1ea41eaf481fd253b4999058"
+  },
+  "allLocalAndLiveHashesMatch": true
+}

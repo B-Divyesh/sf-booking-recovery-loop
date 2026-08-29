@@ -1,0 +1,137 @@
+{
+  "routes": {
+    "desktop:/": {
+      "status": 200,
+      "title": "Booking Recovery Loop — recover unfinished bookings",
+      "h1": 1,
+      "main": 1,
+      "overflow": 0,
+      "seriousCritical": [],
+      "errors": []
+    },
+    "desktop:/demo": {
+      "status": 200,
+      "title": "Demo — Booking Recovery Loop",
+      "h1": 1,
+      "main": 1,
+      "overflow": 0,
+      "seriousCritical": [],
+      "errors": []
+    },
+    "desktop:/start": {
+      "status": 200,
+      "title": "Start a practice — Booking Recovery Loop",
+      "h1": 1,
+      "main": 1,
+      "overflow": 0,
+      "seriousCritical": [],
+      "errors": []
+    },
+    "desktop:/privacy": {
+      "status": 200,
+      "title": "Privacy — Booking Recovery Loop",
+      "h1": 1,
+      "main": 1,
+      "overflow": 0,
+      "seriousCritical": [],
+      "errors": []
+    },
+    "desktop:/terms": {
+      "status": 200,
+      "title": "Terms — Booking Recovery Loop",
+      "h1": 1,
+      "main": 1,
+      "overflow": 0,
+      "seriousCritical": [],
+      "errors": []
+    },
+    "mobile:/": {
+      "status": 200,
+      "title": "Booking Recovery Loop — recover unfinished bookings",
+      "h1": 1,
+      "main": 1,
+      "overflow": 0,
+      "seriousCritical": [],
+      "errors": []
+    },
+    "mobile:/demo": {
+      "status": 200,
+      "title": "Demo — Booking Recovery Loop",
+      "h1": 1,
+      "main": 1,
+      "overflow": 0,
+      "seriousCritical": [],
+      "errors": []
+    },
+    "mobile:/start": {
+      "status": 200,
+      "title": "Start a practice — Booking Recovery Loop",
+      "h1": 1,
+      "main": 1,
+      "overflow": 0,
+      "seriousCritical": [],
+      "errors": []
+    },
+    "mobile:/privacy": {
+      "status": 200,
+      "title": "Privacy — Booking Recovery Loop",
+      "h1": 1,
+      "main": 1,
+      "overflow": 0,
+      "seriousCritical": [],
+      "errors": []
+    },
+    "mobile:/terms": {
+      "status": 200,
+      "title": "Terms — Booking Recovery Loop",
+      "h1": 1,
+      "main": 1,
+      "overflow": 0,
+      "seriousCritical": [],
+      "errors": []
+    }
+  },
+  "keyboard": {
+    "firstFocus": {
+      "text": "Skip to main content",
+      "outline": "rgb(156, 203, 255) solid 3px",
+      "boxShadow": "none"
+    },
+    "afterSkip": {
+      "id": "main",
+      "tag": "MAIN"
+    },
+    "actionFocus": {
+      "outline": "rgb(156, 203, 255) solid 3px",
+      "boxShadow": "none"
+    },
+    "recovery": "delivered"
+  },
+  "reducedMotion": {
+    "media": true,
+    "moving": []
+  },
+  "demoPrivacy": {
+    "origins": [
+      "https://booking-recovery-loop.sociobot.in"
+    ],
+    "storage": {
+      "keys": [
+        "demo:workspace-token"
+      ],
+      "tokenValue": "redacted ephemeral demo token"
+    },
+    "headers": {
+      "cache-control": "no-cache",
+      "content-length": "2343",
+      "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'",
+      "content-type": "text/html; charset=utf-8",
+      "date": "Sat, 29 Aug 2026 05:18:06 GMT",
+      "permissions-policy": "camera=(), microphone=(), geolocation=()",
+      "referrer-policy": "strict-origin-when-cross-origin",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
+      "x-request-id": "9e7758de-5426-4ecf-814a-9244ad778a16"
+    }
+  }
+}
