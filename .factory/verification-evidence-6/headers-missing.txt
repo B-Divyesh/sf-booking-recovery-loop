@@ -1,0 +1,12 @@
+HTTP/2 404 
+content-type: text/html; charset=utf-8
+cache-control: no-cache
+x-content-type-options: nosniff
+referrer-policy: strict-origin-when-cross-origin
+x-frame-options: DENY
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'
+x-request-id: 49a05e82-4ad5-43b0-9d43-9b0b7470613a
+content-length: 2343
+date: Sat, 29 Aug 2026 06:26:39 GMT
+

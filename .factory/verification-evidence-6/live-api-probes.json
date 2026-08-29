@@ -1,0 +1,107 @@
+{
+  "verifiedAt": "2026-08-29T06:31:00Z",
+  "baseUrl": "https://booking-recovery-loop.sociobot.in",
+  "health": {
+    "status": 200,
+    "buildSha": "649a5e7efd92d84aae17290332337b7e5eebb096"
+  },
+  "realDeliveryFlow": {
+    "createPractice": 201,
+    "createConsentedBooking": 201,
+    "deliveryConnectionTest": {
+      "status": 502,
+      "error": "delivery_rejected"
+    },
+    "manualRecovery": {
+      "status": 502,
+      "error": "delivery_rejected"
+    },
+    "ownerRead": 200,
+    "deletePractice": 204
+  },
+  "crossReplicaPersistence": {
+    "method": "90 independent HTTP/1.1 connections with Connection: close",
+    "createPractice": 201,
+    "publicReadsBeforeDelete": {
+      "200": 29,
+      "404": 61
+    },
+    "deleteAttempts": {
+      "204": 1,
+      "404": 11
+    },
+    "publicReadsAfterSuccessfulDelete": {
+      "404": 30
+    }
+  },
+  "concurrentSlot": {
+    "requests": 8,
+    "201": 1,
+    "409": 7
+  },
+  "rateLimits": {
+    "demoWriteSingleConnection": {
+      "documentedAllowance": 12,
+      "accepted": 12,
+      "limited": 1,
+      "retryAfterSeconds": 60
+    },
+    "demoWriteAcrossIndependentConnections": {
+      "documentedAllowance": 12,
+      "requests": 45,
+      "accepted": 36,
+      "limited": 9,
+      "retryAfterSeconds": 60
+    },
+    "apiReadAcrossIndependentConnections": {
+      "advertisedAllowance": 40,
+      "requests": 150,
+      "accepted": 126,
+      "limited": 24,
+      "retryAfterSeconds": 1
+    },
+    "deleteSingleConnection": {
+      "advertisedAllowance": 40,
+      "handlerResponses": 40,
+      "limited": 20,
+      "retryAfterSeconds": 1
+    }
+  },
+  "billing": {
+    "checkoutUrl": "https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout",
+    "status": 404,
+    "body": {
+      "error": "enabled factory product",
+      "status": 404
+    }
+  },
+  "identity": {
+    "authCallbackStatus": 404,
+    "msalDependencyPresent": false,
+    "ciamAuthorityPresent": false,
+    "missingOwnerTokenStatus": 401,
+    "missingOwnerTokenWwwAuthenticate": null
+  },
+  "liveContainerInspection": {
+    "revision": "sf-booking-recovery-loop--0000019",
+    "runningReplicas": 3,
+    "environmentVariableNames": ["PORT"],
+    "minReplicas": 1,
+    "maxReplicas": 3
+  },
+  "inputBoundaries": {
+    "duration15Deposit0": 201,
+    "duration480Deposit1000000": 201,
+    "duration14": 400,
+    "duration481": 400,
+    "depositMinus1": 400,
+    "deposit1000001": 400,
+    "uppercaseShortSlug": 400,
+    "httpPaymentUrl": 400,
+    "ownerControlledDeliveryUrl": 400,
+    "bookingWithoutConsent": 400,
+    "emailConsentWithoutEmail": 400,
+    "smsConsentWithShortPhone": 400,
+    "invalidTime": 400
+  }
+}

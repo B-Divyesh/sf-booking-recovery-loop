@@ -1,0 +1,24 @@
+{
+  "candidate": "649a5e7efd92d84aae17290332337b7e5eebb096",
+  "healthBuildSha": "649a5e7efd92d84aae17290332337b7e5eebb096",
+  "buildEnvironment": {
+    "VITE_BUILD_SHA": "649a5e7efd92d84aae17290332337b7e5eebb096"
+  },
+  "files": {
+    "index.html": {
+      "liveSha256": "2a739b3b771b3f5ba037211c8bea5c031ceaf499821bd4e45e814459bd8858d0",
+      "localSha256": "2a739b3b771b3f5ba037211c8bea5c031ceaf499821bd4e45e814459bd8858d0",
+      "byteExact": true
+    },
+    "assets/index-BBYb5hcw.js": {
+      "liveSha256": "a53f58d0a2702301d49336b0b98d4b8daa01794508dff0b3204c770f1b701e2b",
+      "localSha256": "a53f58d0a2702301d49336b0b98d4b8daa01794508dff0b3204c770f1b701e2b",
+      "byteExact": true
+    },
+    "assets/index-L0aFYqrs.css": {
+      "liveSha256": "6851819722430a3853bf6db0241a8f79bca6f97b1ea41eaf481fd253b4999058",
+      "localSha256": "6851819722430a3853bf6db0241a8f79bca6f97b1ea41eaf481fd253b4999058",
+      "byteExact": true
+    }
+  }
+}

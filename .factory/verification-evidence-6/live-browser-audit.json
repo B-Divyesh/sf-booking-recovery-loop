@@ -1,0 +1,311 @@
+{
+  "base": "https://booking-recovery-loop.sociobot.in",
+  "routes": {
+    "desktop:/": {
+      "status": 200,
+      "title": "Booking Recovery Loop — recover unfinished bookings",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [
+        {
+          "text": "Set up your practice",
+          "tag": "A",
+          "width": 141,
+          "height": 21
+        },
+        {
+          "text": "Read how booking data is handled",
+          "tag": "A",
+          "width": 241,
+          "height": 21
+        }
+      ],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "desktop:/demo": {
+      "status": 200,
+      "title": "Demo — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "desktop:/start": {
+      "status": 200,
+      "title": "Start a practice — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [
+        {
+          "text": "Resend email delivery",
+          "tag": "SELECT",
+          "width": 718,
+          "height": 25
+        }
+      ],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "desktop:/app": {
+      "status": 200,
+      "title": "Recovery queue — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [
+        {
+          "text": "Create a practice workspace",
+          "tag": "A",
+          "width": 200,
+          "height": 21
+        }
+      ],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "desktop:/app/settings/data": {
+      "status": 200,
+      "title": "Data controls — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "desktop:/privacy": {
+      "status": 200,
+      "title": "Privacy — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "desktop:/terms": {
+      "status": 200,
+      "title": "Terms — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "desktop:/missing-page": {
+      "status": 404,
+      "title": "Page not found — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [],
+      "seriousCritical": [],
+      "errors": [
+        "console: Failed to load resource: the server responded with a status of 404 ()"
+      ]
+    },
+    "mobile:/": {
+      "status": 200,
+      "title": "Booking Recovery Loop — recover unfinished bookings",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [
+        {
+          "text": "Read how booking data is handled",
+          "tag": "A",
+          "width": 241,
+          "height": 21
+        }
+      ],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "mobile:/demo": {
+      "status": 200,
+      "title": "Demo — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "mobile:/start": {
+      "status": 200,
+      "title": "Start a practice — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [
+        {
+          "text": "Resend email delivery",
+          "tag": "SELECT",
+          "width": 324,
+          "height": 25
+        }
+      ],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "mobile:/app": {
+      "status": 200,
+      "title": "Recovery queue — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [
+        {
+          "text": "Create a practice workspace",
+          "tag": "A",
+          "width": 200,
+          "height": 21
+        }
+      ],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "mobile:/app/settings/data": {
+      "status": 200,
+      "title": "Data controls — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "mobile:/privacy": {
+      "status": 200,
+      "title": "Privacy — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "mobile:/terms": {
+      "status": 200,
+      "title": "Terms — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [],
+      "seriousCritical": [],
+      "errors": []
+    },
+    "mobile:/missing-page": {
+      "status": 404,
+      "title": "Page not found — Booking Recovery Loop",
+      "lang": "en",
+      "h1Count": 1,
+      "hasMain": true,
+      "overflow": false,
+      "missingAlt": 0,
+      "smallTargets": [],
+      "seriousCritical": [],
+      "errors": [
+        "console: Failed to load resource: the server responded with a status of 404 ()"
+      ]
+    }
+  },
+  "demo": {
+    "requests": [
+      {
+        "method": "GET",
+        "url": "https://booking-recovery-loop.sociobot.in/?demo=1"
+      },
+      {
+        "method": "GET",
+        "url": "https://booking-recovery-loop.sociobot.in/fonts/atkinson-next-latin-variable.woff2"
+      },
+      {
+        "method": "GET",
+        "url": "https://booking-recovery-loop.sociobot.in/fonts/fraunces-latin-variable.woff2"
+      },
+      {
+        "method": "GET",
+        "url": "https://booking-recovery-loop.sociobot.in/assets/index-BBYb5hcw.js"
+      },
+      {
+        "method": "GET",
+        "url": "https://booking-recovery-loop.sociobot.in/assets/index-L0aFYqrs.css"
+      },
+      {
+        "method": "POST",
+        "url": "https://booking-recovery-loop.sociobot.in/api/v1/demo/workspaces"
+      },
+      {
+        "method": "POST",
+        "url": "https://booking-recovery-loop.sociobot.in/api/v1/demo/attempts/01a04c32-8457-77a2-9559-2af937bfa55d%3Amaya-unfinished/recover"
+      }
+    ],
+    "externalRequests": [],
+    "storage": [
+      "demo:workspace-token"
+    ],
+    "banner": "Demo — sample data, nothing is saved\n\nReset demo\nStart for real",
+    "ticketCount": 3,
+    "receipt": "✓\nDelivered · simulated email\n29 Aug, 07:26 BST\n\nSample email accepted by the in-process demo mailbox.",
+    "errors": []
+  },
+  "keyboard": {
+    "firstFocus": {
+      "text": "Skip to main content",
+      "outline": "rgb(156, 203, 255) solid 3px"
+    },
+    "afterSkip": {
+      "id": "main",
+      "tag": "MAIN"
+    },
+    "mayaFocus": "Mon 31 Aug, 07:26\n      Maya Patel\n      Left before the sample deposit step\n      Needs a follow-up",
+    "runFocus": "Run sample follow-up",
+    "receiptVisible": true
+  },
+  "reducedMotion": {
+    "runningAnimations": 0,
+    "materialMotion": 120
+  },
+  "mobile": {
+    "overflow": false,
+    "scrollWidth": 390,
+    "clientWidth": 390
+  }
+}

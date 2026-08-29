@@ -1,0 +1,12 @@
+HTTP/2 200 
+content-type: text/html; charset=utf-8
+cache-control: no-cache
+x-content-type-options: nosniff
+referrer-policy: strict-origin-when-cross-origin
+x-frame-options: DENY
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'
+x-request-id: 57d9e782-562f-4974-bc07-59c7874b1cad
+content-length: 2343
+date: Sat, 29 Aug 2026 06:26:39 GMT
+
