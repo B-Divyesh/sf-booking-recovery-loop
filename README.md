@@ -87,8 +87,8 @@ command: it discards the shared-store boundary. The app remains runnable locally
 with only `PORT`; use `/health` for a health check.
 
 The shared production pooler permits 15 session clients. The service caps each
-of three replicas at four PostgreSQL connections so API bursts do not exhaust
-that shared boundary.
+of three replicas at two PostgreSQL connections, preserving headroom for the
+release job and operations during an API burst.
 
 ## License
 

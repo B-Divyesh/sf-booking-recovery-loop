@@ -36,14 +36,14 @@ const SHARED_API_REQUESTS_PER_SECOND: i32 = 40;
 const SHARED_WRITE_REQUESTS_PER_MINUTE: i32 = 12;
 
 fn database_pool_max_connections(database_url: &str) -> u32 {
-    // The factory's shared PgBouncer session pool has a 15-client ceiling.
-    // Three application replicas must leave headroom for migrations and
-    // operations, rather than opening ten connections each and converting an
-    // otherwise valid global-rate-limit burst into 503 responses.
+    // The factory's shared PgBouncer session pool has a 15-client ceiling
+    // shared with release work and operational connections. Three serving
+    // replicas therefore get two connections each, leaving enough headroom
+    // that a valid global limiter burst cannot turn into EMAXCONNSESSION 503s.
     if database_url.starts_with("sqlite:") {
         1
     } else {
-        4
+        2
     }
 }
 
@@ -705,14 +705,15 @@ mod tests {
     }
 
     #[test]
-    fn postgres_replica_pools_stay_below_the_shared_pooler_session_ceiling() {
+    fn postgres_replica_pools_leave_operational_headroom_in_the_shared_pooler() {
         assert_eq!(super::database_pool_max_connections("sqlite::memory:"), 1);
         assert_eq!(
             super::database_pool_max_connections("postgresql://example.test/postgres"),
-            4
+            2
         );
         assert!(
-            super::database_pool_max_connections("postgresql://example.test/postgres") * 3 < 15
+            super::database_pool_max_connections("postgresql://example.test/postgres") * 3 + 3 < 15,
+            "three replicas must leave room for release and operational connections"
         );
     }
 }

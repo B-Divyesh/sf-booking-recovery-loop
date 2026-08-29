@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use axum::{
     extract::{Path, State},
@@ -85,6 +85,7 @@ struct Receipt {
 
 #[derive(Debug, FromRow)]
 struct ReceiptRow {
+    attempt_id: String,
     channel: String,
     status: String,
     detail: String,
@@ -191,7 +192,6 @@ pub(crate) async fn show(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<DemoEnvelope>, ApiError> {
-    let _guard = state.demo_lock.lock().await;
     let token = workspace_token(&headers)?;
     Ok(Json(load_workspace(&state.pool, token).await?))
 }
@@ -545,28 +545,36 @@ async fn workspace_from_row(
     .await
     .map_err(|_| ApiError::internal())?;
 
-    let mut response_attempts = Vec::with_capacity(attempts.len());
-    for attempt in attempts {
-        let receipt_rows = sqlx::query_as::<_, ReceiptRow>(
-            "SELECT m.channel, e.status, e.detail, e.occurred_at, e.simulated FROM delivery_events e \
-             JOIN outbound_messages m ON m.id = e.message_id \
-             WHERE m.attempt_id = $1 ORDER BY e.occurred_at",
-        )
-        .bind(&attempt.id)
-        .fetch_all(pool)
-        .await
-        .map_err(|_| ApiError::internal())?;
-
-        let receipts = receipt_rows
-            .into_iter()
-            .map(|receipt| Receipt {
+    // Read-only demo views do not take the per-process mutation lock. A reset
+    // revokes the old row in the shared store, and this one workspace-scoped
+    // lookup keeps concurrent replica reads quick enough to avoid exhausting
+    // the shared PgBouncer session budget.
+    let receipt_rows = sqlx::query_as::<_, ReceiptRow>(
+        "SELECT m.attempt_id, m.channel, e.status, e.detail, e.occurred_at, e.simulated \
+         FROM delivery_events e JOIN outbound_messages m ON m.id = e.message_id \
+         WHERE m.workspace_id = $1 ORDER BY e.occurred_at",
+    )
+    .bind(&row.id)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::internal())?;
+    let mut receipts_by_attempt = HashMap::<String, Vec<Receipt>>::new();
+    for receipt in receipt_rows {
+        receipts_by_attempt
+            .entry(receipt.attempt_id)
+            .or_default()
+            .push(Receipt {
                 channel: receipt.channel,
                 status: receipt.status,
                 detail: receipt.detail,
                 occurred_at: timestamp(receipt.occurred_at),
                 simulated: receipt.simulated == 1,
-            })
-            .collect();
+            });
+    }
+
+    let mut response_attempts = Vec::with_capacity(attempts.len());
+    for attempt in attempts {
+        let receipts = receipts_by_attempt.remove(&attempt.id).unwrap_or_default();
         response_attempts.push(Attempt {
             id: attempt.id,
             client_name: attempt.client_name,
@@ -1424,6 +1432,69 @@ mod tests {
             "one client must have one global write allowance"
         );
         assert_eq!(limited, 28);
+
+        for pool in pools {
+            pool.close().await;
+        }
+        let _ = std::fs::remove_file(database_path);
+    }
+
+    #[tokio::test]
+    async fn shared_read_limit_allows_only_forty_of_one_hundred_sixty_cross_replica_reads() {
+        let database_path = std::env::temp_dir().join(format!(
+            "booking-recovery-read-rate-replica-{}.db",
+            uuid::Uuid::now_v7()
+        ));
+        let (apps, pools) = shared_replica_apps(&database_path, 4).await;
+        let created = json(
+            apps[0]
+                .clone()
+                .oneshot(request(
+                    "POST",
+                    "/api/v1/demo/workspaces",
+                    "shared-read-create",
+                    None,
+                ))
+                .await
+                .expect("workspace should create"),
+        )
+        .await;
+        let token = created["workspaceToken"]
+            .as_str()
+            .expect("workspace token")
+            .to_owned();
+
+        let mut requests = tokio::task::JoinSet::new();
+        for number in 0..160 {
+            let app = apps[number % apps.len()].clone();
+            let token = token.clone();
+            requests.spawn(async move {
+                app.oneshot(request(
+                    "GET",
+                    "/api/v1/demo/workspace",
+                    "unused-read-key",
+                    Some(&token),
+                ))
+                .await
+                .expect("read should respond")
+            });
+        }
+        let mut loaded = 0;
+        let mut limited = 0;
+        while let Some(result) = requests.join_next().await {
+            let response = result.expect("read task should finish");
+            match response.status() {
+                StatusCode::OK => loaded += 1,
+                StatusCode::TOO_MANY_REQUESTS => {
+                    limited += 1;
+                    assert_eq!(response.headers()["x-ratelimit-limit"], "40");
+                    assert_eq!(response.headers()["retry-after"], "1");
+                }
+                status => panic!("shared read limiter must return 200 or 429, got {status}"),
+            }
+        }
+        assert_eq!(loaded, 40, "one client must have one global read allowance");
+        assert_eq!(limited, 120);
 
         for pool in pools {
             pool.close().await;
