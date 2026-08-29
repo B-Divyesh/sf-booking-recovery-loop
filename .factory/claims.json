@@ -17,8 +17,8 @@
     "id": "forwarded-rate-limit",
     "claim": "Demo writes allow 12 immediate requests per first forwarded client IP, then return a retry time of at least one second.",
     "where": "Terms and API response headers",
-    "test": "cargo test --manifest-path backend/Cargo.toml write_limit_uses_forwarded_ip_and_returns_retry_after",
-    "sandbox": "An isolated router sends 13 writes from one X-Forwarded-For address, asserts the first 12 advertise limit 12, and asserts the thirteenth returns 429 with matching positive Retry-After headers while another forwarded client remains allowed."
+    "test": "cargo test --manifest-path backend/Cargo.toml shared_write_limit_allows_only_twelve_of_forty_concurrent_cross_replica_writes",
+    "sandbox": "Four isolated API replicas share one durable store. Forty simultaneous writes from one X-Forwarded-For address yield exactly 12 created workspaces and 28 responses with 429, X-RateLimit-Limit 12, and Retry-After 60."
   },
   {
     "id": "demo-no-account-payment",
@@ -31,8 +31,8 @@
     "id": "demo-reset",
     "claim": "Reset demo starts a fresh set of sample bookings.",
     "where": "Demo banner",
-    "test": "npm run test:e2e -- --grep @claim:demo-reset",
-    "sandbox": "Fresh /demo workspace changes the recovery state, selects Reset demo, asserts a new token and original states, then proves the old workspace returns 404."
+    "test": "cargo test --manifest-path backend/Cargo.toml reset_revokes_old_token_across_shared_replicas_under_concurrent_reads",
+    "sandbox": "Four isolated API replicas share one durable store. After reset rotates a fresh sample token, 24 simultaneous old-token reads distributed across every replica all return 404."
   },
   {
     "id": "consent-gates-recovery",
@@ -166,5 +166,19 @@
     "where": "Landing practice plan",
     "test": "npm run test:e2e -- --grep @claim:practice-plan-price",
     "sandbox": "A fresh landing page exposes the exact monthly price, the Sociobot-hosted subscription checkout link, and a working setup link."
+  },
+  {
+    "id": "server-owned-integration-boundary",
+    "claim": "Provider addresses and credentials stay server-side; the browser receives no delivery or billing credential.",
+    "where": "Practice setup help and README",
+    "test": "cargo test --manifest-path backend/Cargo.toml integration_status_requires_registered_billing_product_and_never_serializes_server_credentials",
+    "sandbox": "A configured credentialed delivery adapter and private billing boundary are exercised through the browser-visible integration endpoint. The endpoint proves an unregistered billing product is unavailable and its JSON contains none of the provider address, bearer credential, callback secret, or billing boundary."
+  },
+  {
+    "id": "entra-token-validation",
+    "claim": "The API accepts an owner identity only after Entra discovery issuer, JWKS RS256 signature, audience, tenant, expiry, nbf, and stable oid checks.",
+    "where": "README authentication section",
+    "test": "cargo test --manifest-path backend/Cargo.toml production_token_validation_requires_discovery_signature_audience_tenant_time_and_oid",
+    "sandbox": "A signed isolated RS256 token with discovery issuer, matching JWKS key, registered audience, tenant, valid time window, and stable oid is accepted. Each wrong issuer, audience, tenant, oid, expiry, nbf, or tampered signature is rejected."
   }
 ]

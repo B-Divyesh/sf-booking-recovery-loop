@@ -66,7 +66,40 @@ for (let i = 0; i < 13; i += 1) {
 }
 checks.rateLimit = { client: rateClient, statuses: rateStatuses, retryAfter };
 checks.rateLimitPassed = rateStatuses.slice(0, 12).every((status) => status === 201) && rateStatuses[12] === 429 && Number(retryAfter[12]) >= 1;
-const passed = checks.homeStatus === 200 && checks.demoTickets === 3 && checks.demoResetRotatedToken && checks.demoSameOrigin && checks.subscriptionCheckoutStatus === 303 && checks.startExplainsIdentity && checks.routes["/not-a-real-place"] === 404 && checks.mobileNoOverflow && checks.rateLimitPassed && consoleErrors.length === 0;
+const concurrentRateClient = `203.0.113.${(Date.now() % 200) + 20}`;
+const concurrentRateResponses = await Promise.all(Array.from({ length: 40 }, (_, index) => context.request.post(`${baseURL}/api/v1/demo/workspaces`, {
+  headers: {
+    "X-Forwarded-For": concurrentRateClient,
+    "Idempotency-Key": `live-concurrent-rate-${Date.now()}-${index}`
+  }
+})));
+const concurrentStatuses = concurrentRateResponses.map((response) => response.status());
+const concurrentLimited = concurrentRateResponses.filter((response) => response.status() === 429);
+checks.concurrentRateLimit = {
+  client: concurrentRateClient,
+  created: concurrentStatuses.filter((status) => status === 201).length,
+  limited: concurrentLimited.length,
+  retryAfter: concurrentLimited.map((response) => response.headers()["retry-after"] ?? null),
+  limit: concurrentLimited.map((response) => response.headers()["x-ratelimit-limit"] ?? null)
+};
+checks.concurrentRateLimitPassed = checks.concurrentRateLimit.created === 12
+  && checks.concurrentRateLimit.limited === 28
+  && checks.concurrentRateLimit.retryAfter.every((value) => value === "60")
+  && checks.concurrentRateLimit.limit.every((value) => value === "12");
+
+const oldTokenReadClient = `198.51.100.${(Date.now() % 200) + 20}`;
+const oldTokenResponses = await Promise.all(Array.from({ length: 24 }, () => context.request.get(`${baseURL}/api/v1/demo/workspace`, {
+  headers: { "X-Forwarded-For": oldTokenReadClient, "X-Demo-Workspace": firstToken }
+})));
+checks.resetRevocation = {
+  client: oldTokenReadClient,
+  statuses: oldTokenResponses.map((response) => response.status())
+};
+checks.resetRevocationPassed = checks.resetRevocation.statuses.every((status) => status === 404);
+
+const integrationResponse = await context.request.get(`${baseURL}/api/v1/integrations/status`);
+checks.integrations = { status: integrationResponse.status(), body: await integrationResponse.json() };
+const passed = checks.homeStatus === 200 && checks.demoTickets === 3 && checks.demoResetRotatedToken && checks.demoSameOrigin && checks.subscriptionCheckoutStatus === 303 && checks.startExplainsIdentity && checks.routes["/not-a-real-place"] === 404 && checks.mobileNoOverflow && checks.rateLimitPassed && checks.concurrentRateLimitPassed && checks.resetRevocationPassed && consoleErrors.length === 0;
 await writeFile(`${evidenceDir}/live-check.json`, JSON.stringify({ baseURL, passed, checks }, null, 2));
 await browser.close();
 console.log(JSON.stringify({ passed, checks }, null, 2));

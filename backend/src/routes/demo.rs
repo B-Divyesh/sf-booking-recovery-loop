@@ -1211,4 +1211,173 @@ mod tests {
             true
         );
     }
+
+    async fn shared_replica_apps(
+        database_path: &std::path::Path,
+        replicas: usize,
+    ) -> (Vec<axum::Router>, Vec<AnyPool>) {
+        sqlx::any::install_default_drivers();
+        let database_url = format!("sqlite://{}?mode=rwc", database_path.display());
+        let first_pool = AnyPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .expect("shared database should open");
+        sqlx::query("PRAGMA journal_mode = WAL")
+            .execute(&first_pool)
+            .await
+            .expect("WAL should enable concurrent test readers");
+        sqlx::query("PRAGMA busy_timeout = 10000")
+            .execute(&first_pool)
+            .await
+            .expect("first connection should wait for a write lock");
+        migrations::up(&first_pool)
+            .await
+            .expect("shared migrations should apply");
+
+        let mut pools = vec![first_pool];
+        for _ in 1..replicas {
+            let pool = AnyPoolOptions::new()
+                .max_connections(1)
+                .connect(&database_url)
+                .await
+                .expect("replica database connection should open");
+            sqlx::query("PRAGMA busy_timeout = 10000")
+                .execute(&pool)
+                .await
+                .expect("replica should wait for a write lock");
+            pools.push(pool);
+        }
+        let apps = pools
+            .iter()
+            .map(|pool| app_router(pool.clone(), "shared-replica", "../dist"))
+            .collect();
+        (apps, pools)
+    }
+
+    #[tokio::test]
+    async fn reset_revokes_old_token_across_shared_replicas_under_concurrent_reads() {
+        let database_path = std::env::temp_dir().join(format!(
+            "booking-recovery-reset-replica-{}.db",
+            uuid::Uuid::now_v7()
+        ));
+        let (apps, pools) = shared_replica_apps(&database_path, 4).await;
+        let created = json(
+            apps[0]
+                .clone()
+                .oneshot(request(
+                    "POST",
+                    "/api/v1/demo/workspaces",
+                    "shared-reset-create",
+                    None,
+                ))
+                .await
+                .expect("workspace should create"),
+        )
+        .await;
+        let old_token = created["workspaceToken"]
+            .as_str()
+            .expect("old token")
+            .to_owned();
+        let reset = json(
+            apps[1]
+                .clone()
+                .oneshot(request(
+                    "POST",
+                    "/api/v1/demo/reset",
+                    "shared-reset-request",
+                    Some(&old_token),
+                ))
+                .await
+                .expect("reset should respond"),
+        )
+        .await;
+        assert_ne!(reset["workspaceToken"], old_token);
+
+        let mut requests = tokio::task::JoinSet::new();
+        for number in 0..24 {
+            let app = apps[number % apps.len()].clone();
+            let token = old_token.clone();
+            requests.spawn(async move {
+                app.oneshot(request(
+                    "GET",
+                    "/api/v1/demo/workspace",
+                    "unused-read-key",
+                    Some(&token),
+                ))
+                .await
+                .expect("old-token read should respond")
+                .status()
+            });
+        }
+        let mut statuses = Vec::new();
+        while let Some(result) = requests.join_next().await {
+            statuses.push(result.expect("read task should finish"));
+        }
+        assert_eq!(statuses.len(), 24);
+        assert!(
+            statuses
+                .iter()
+                .all(|status| *status == StatusCode::NOT_FOUND),
+            "a reset token must stay revoked on every shared-store replica: {statuses:?}"
+        );
+
+        for pool in pools {
+            pool.close().await;
+        }
+        let _ = std::fs::remove_file(database_path);
+    }
+
+    #[tokio::test]
+    async fn shared_write_limit_allows_only_twelve_of_forty_concurrent_cross_replica_writes() {
+        let database_path = std::env::temp_dir().join(format!(
+            "booking-recovery-rate-replica-{}.db",
+            uuid::Uuid::now_v7()
+        ));
+        let (apps, pools) = shared_replica_apps(&database_path, 4).await;
+        let mut requests = tokio::task::JoinSet::new();
+        for number in 0..40 {
+            let app = apps[number % apps.len()].clone();
+            requests.spawn(async move {
+                app.oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/v1/demo/workspaces")
+                        .header("x-forwarded-for", "203.0.113.240, 10.0.0.7")
+                        .header(
+                            "idempotency-key",
+                            format!("shared-concurrent-write-{number}"),
+                        )
+                        .body(Body::empty())
+                        .expect("valid write request"),
+                )
+                .await
+                .expect("write should respond")
+            });
+        }
+        let mut created = 0;
+        let mut limited = 0;
+        while let Some(result) = requests.join_next().await {
+            let response = result.expect("write task should finish");
+            match response.status() {
+                StatusCode::CREATED => created += 1,
+                StatusCode::TOO_MANY_REQUESTS => {
+                    limited += 1;
+                    assert_eq!(response.headers()["x-ratelimit-limit"], "12");
+                    assert_eq!(response.headers()["retry-after"], "60");
+                }
+                status => panic!("shared limiter must return 201 or 429, got {status}"),
+            }
+        }
+        assert_eq!(
+            created, 12,
+            "one client must have one global write allowance"
+        );
+        assert_eq!(limited, 28);
+
+        for pool in pools {
+            pool.close().await;
+        }
+        let _ = std::fs::remove_file(database_path);
+    }
 }

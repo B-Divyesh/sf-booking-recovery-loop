@@ -75,6 +75,16 @@ struct BillingVerifyResponse {
     reason: String,
 }
 
+#[derive(Deserialize)]
+struct BillingProductList {
+    data: Vec<BillingProduct>,
+}
+
+#[derive(Deserialize)]
+struct BillingProduct {
+    slug: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreatedPractice {
@@ -291,6 +301,10 @@ pub(crate) async fn public_show(
 }
 
 pub(crate) async fn integration_status(State(state): State<AppState>) -> Json<Value> {
+    // A non-empty slug is only configuration, not proof that Sociobot has the
+    // product. The public product registry is the smallest non-mutating check
+    // available before a real booking asks it to create a checkout.
+    let billing_configured = registered_billing_product(&state).await;
     Json(json!({
         "delivery": {
             "configured": state.integrations.delivery_ready(),
@@ -298,11 +312,34 @@ pub(crate) async fn integration_status(State(state): State<AppState>) -> Json<Va
             "callbackAuthentication": "hmac-sha256"
         },
         "billing": {
-            "configured": !state.integrations.billing_product_slug.is_empty(),
+            "configured": billing_configured,
             "provider": "sociobot_dodo",
             "productSlug": state.integrations.billing_product_slug
         }
     }))
+}
+
+async fn registered_billing_product(state: &AppState) -> bool {
+    if state.integrations.billing_product_slug.is_empty() {
+        return false;
+    }
+    let endpoint = format!(
+        "{}/products",
+        state.integrations.billing_base_url.trim_end_matches('/')
+    );
+    let Ok(response) = state.http.get(endpoint).send().await else {
+        return false;
+    };
+    if !response.status().is_success() {
+        return false;
+    }
+    let Ok(products) = response.json::<BillingProductList>().await else {
+        return false;
+    };
+    products
+        .data
+        .into_iter()
+        .any(|product| product.slug == state.integrations.billing_product_slug)
 }
 
 pub(crate) async fn create_attempt(
@@ -1807,6 +1844,14 @@ mod tests {
         let send_count = sends.clone();
         let fixture = axum::Router::new()
             .route(
+                "/products",
+                axum::routing::get(|| async {
+                    Json(json!({
+                        "data": [{"slug": "booking-recovery-loop-deposit"}]
+                    }))
+                }),
+            )
+            .route(
                 "/products/booking-recovery-loop-deposit/checkout",
                 axum::routing::post(move |headers: HeaderMap, Json(body): Json<Value>| {
                     let captured_checkout = captured_checkout.clone();
@@ -2151,6 +2196,50 @@ mod tests {
         }), None).await;
         assert_eq!(status, StatusCode::CREATED, "{body}");
         assert_eq!(body["practice"]["deliveryConnected"], false);
+    }
+
+    #[tokio::test]
+    async fn integration_status_requires_registered_billing_product_and_never_serializes_server_credentials(
+    ) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let fixture = axum::Router::new().route(
+            "/products",
+            axum::routing::get(|| async {
+                Json(json!({"data": [{"slug": "a-different-product"}]}))
+            }),
+        );
+        tokio::spawn(async move { axum::serve(listener, fixture).await.unwrap() });
+
+        let integrations = IntegrationConfig {
+            delivery_url: Some("https://relay.example.test/private-send-endpoint".to_owned()),
+            delivery_bearer_token: Some("delivery-bearer-secret-never-for-browser".to_owned()),
+            delivery_callback_secret: Some("callback-hmac-secret-never-for-browser".to_owned()),
+            billing_base_url: format!("http://{address}"),
+            billing_product_slug: "booking-recovery-loop-deposit".to_owned(),
+            public_base_url: "https://booking-recovery-loop.sociobot.in".to_owned(),
+        };
+        let (app, _) = test_app_with_integrations(integrations).await;
+        let (status, body) =
+            send(&app, "GET", "/api/v1/integrations/status", json!({}), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["delivery"]["configured"], true);
+        assert_eq!(
+            body["billing"]["configured"], false,
+            "a configured slug is not a billing integration until the provider registry has it"
+        );
+        let serialized = body.to_string();
+        for server_only_value in [
+            "https://relay.example.test/private-send-endpoint",
+            "delivery-bearer-secret-never-for-browser",
+            "callback-hmac-secret-never-for-browser",
+            &format!("http://{address}"),
+        ] {
+            assert!(
+                !serialized.contains(server_only_value),
+                "browser JSON must not disclose {server_only_value}"
+            );
+        }
     }
 
     #[tokio::test]
