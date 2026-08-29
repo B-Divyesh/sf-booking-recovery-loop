@@ -26,7 +26,7 @@ sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio
 tokio = { version = "1.44.1", features = ["macros", "rt-multi-thread", "signal", "time"] }
 tower = { version = "0.5.2", features = ["util"] }
 tower_governor = { version = "0.8.0", default-features = false, features = ["axum", "tracing"] }
-tower-http = { version = "0.6.6", features = ["fs", "request-id", "set-header", "trace"] }
+tower-http = { version = "0.6.6", features = ["compression-gzip", "fs", "request-id", "set-header", "trace"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 uuid = { version = "1.16.0", features = ["serde", "v7"] }

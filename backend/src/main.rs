@@ -20,6 +20,7 @@ use tower_governor::{
     GovernorLayer,
 };
 use tower_http::{
+    compression::CompressionLayer,
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     services::{ServeDir, ServeFile},
     set_header::SetResponseHeaderLayer,
@@ -300,6 +301,7 @@ fn app_router_from_state(state: AppState) -> Router {
             HeaderName::from_static("x-request-id"),
             MakeRequestUuid,
         ))
+        .layer(CompressionLayer::new())
 }
 
 /// The governor above protects a single process from bursts. This database
