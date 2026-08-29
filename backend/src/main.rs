@@ -276,7 +276,11 @@ async fn shared_api_rate_limit(
     // PostgreSQL stores this column as INTEGER (i32), while SQLite's dynamic
     // integer type had masked the wrong i64 decoder in local-only testing.
     let hits = sqlx::query_scalar::<_, i32>(
-        "INSERT INTO api_rate_windows (client_key, window_start, hits) VALUES (?, ?, 1) \
+        // `$1` parameters work with both PostgreSQL and SQLite. `AnyPool`
+        // selects a driver but does not rewrite `?` placeholders for
+        // PostgreSQL; keeping the portable spelling here prevents a deployed
+        // limiter from failing closed with a syntax error.
+        "INSERT INTO api_rate_windows (client_key, window_start, hits) VALUES ($1, $2, 1) \
          ON CONFLICT (client_key, window_start) DO UPDATE SET hits = api_rate_windows.hits + 1 \
          RETURNING hits",
     )
