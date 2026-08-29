@@ -34,6 +34,19 @@ const WRITE_BURST: u32 = 12;
 const WRITE_REPLENISH_SECONDS: u64 = 60;
 const SHARED_API_REQUESTS_PER_SECOND: i32 = 40;
 const SHARED_WRITE_REQUESTS_PER_MINUTE: i32 = 12;
+
+fn database_pool_max_connections(database_url: &str) -> u32 {
+    // The factory's shared PgBouncer session pool has a 15-client ceiling.
+    // Three application replicas must leave headroom for migrations and
+    // operations, rather than opening ten connections each and converting an
+    // otherwise valid global-rate-limit burst into 503 responses.
+    if database_url.starts_with("sqlite:") {
+        1
+    } else {
+        4
+    }
+}
+
 fn postgres_schema_setup_statements() -> [&'static str; 2] {
     [
         "CREATE SCHEMA IF NOT EXISTS booking_recovery_loop",
@@ -514,11 +527,7 @@ async fn main() {
     });
     let uses_postgres = database_url.starts_with("postgres");
     let pool = AnyPoolOptions::new()
-        .max_connections(if database_url.starts_with("sqlite:") {
-            1
-        } else {
-            10
-        })
+        .max_connections(database_pool_max_connections(&database_url))
         .after_connect(move |connection, _| {
             Box::pin(async move {
                 // PgBouncer may hand a different physical connection to each
@@ -686,6 +695,18 @@ mod tests {
                 "CREATE SCHEMA IF NOT EXISTS booking_recovery_loop",
                 "SET search_path TO booking_recovery_loop, public",
             ]
+        );
+    }
+
+    #[test]
+    fn postgres_replica_pools_stay_below_the_shared_pooler_session_ceiling() {
+        assert_eq!(super::database_pool_max_connections("sqlite::memory:"), 1);
+        assert_eq!(
+            super::database_pool_max_connections("postgresql://example.test/postgres"),
+            4
+        );
+        assert!(
+            super::database_pool_max_connections("postgresql://example.test/postgres") * 3 < 15
         );
     }
 }

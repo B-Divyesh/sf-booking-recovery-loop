@@ -86,6 +86,10 @@ value in `deploy/containerapp.m1.json`. Do not use the generic port-only deploy
 command: it discards the shared-store boundary. The app remains runnable locally
 with only `PORT`; use `/health` for a health check.
 
+The shared production pooler permits 15 session clients. The service caps each
+of three replicas at four PostgreSQL connections so API bursts do not exhaust
+that shared boundary.
+
 ## License
 
 [MIT](LICENSE). Fraunces and Atkinson Hyperlegible Next use the SIL Open Font
