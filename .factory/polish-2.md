@@ -20,7 +20,7 @@
 
 - Desktop home: `.factory/evidence/polish-2-local/home.png`
 - 390 px demo: `.factory/evidence/polish-2-local/demo-mobile.png`
-- Live URL: `https://booking-recovery-loop.sociobot.in` (cold check recorded in the handoff after deployment)
+- Live URL: `https://booking-recovery-loop.sociobot.in` — `/health` reports `7e7194b0f1a0d4f0585e55fadf324bbe2ba903b0`; cold verifier passed.
 
 ## External boundary
 

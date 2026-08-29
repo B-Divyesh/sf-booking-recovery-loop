@@ -37,9 +37,22 @@ request logging, and the designed HTTP 404. Local screenshots are in
 
 ## Deploy and live check
 
-The container deploy was started through the factory work-order configuration
-for `booking-recovery-loop` at this commit. Append the cold live response,
-health build SHA, and screenshot evidence here after the deployment completes.
+The container deployed through the factory work-order configuration. A cold
+live check at `https://booking-recovery-loop.sociobot.in` passed:
+
+```text
+GET /health                         200; build 7e7194b0f1a0d4f0585e55fadf324bbe2ba903b0
+GET /missing-page                   404
+verify-url                          title/lang/h1/main/alts/buttons/console pass
+verify-url cold load                549 ms; zero console errors
+live 390 px ?demo=1                 banner, 3 tickets, no horizontal overflow
+live 390 px /                       $29 price, unavailable checkout state, legal links, no overflow
+```
+
+Live evidence is in `.factory/evidence/polish-2-live/`, including the desktop
+and mobile screenshots, health response, 404 response, and verifier JSON.
+`@axe-core/cli` could not launch its own Chrome binary in this worker; the
+Playwright axe integration completed in the 26-test browser suite instead.
 
 ## Known external boundary
 
