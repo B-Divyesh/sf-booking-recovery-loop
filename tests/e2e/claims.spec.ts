@@ -138,13 +138,14 @@ test("@claim:sample-three-bookings opens one-click sample data", async ({ page }
 test("@claim:practice-plan-price shows the priced plan and current checkout state", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("Recovery Loop Practice is $29 per month for one practice.")).toBeVisible();
-  await expect(page.getByText("Checkout is not available yet. You can create a workspace and test the delivery connection now.")).toBeVisible();
+  await expect(page.getByText("The hosted checkout starts the $29 monthly practice subscription. Sign in to create the workspace after checkout.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Start Recovery Loop Practice" })).toHaveAttribute("href", "https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout");
   await expect(page.getByRole("link", { name: "Set up your practice" }).last()).toHaveAttribute("href", "/start");
 });
 
 test("@claim:card-data-excluded has no card fields before hosted payment", async ({ page, request }) => {
   const slug = `claim-card-data-${Date.now()}`;
-  const created = await request.post("/api/v1/practices", { headers: { "X-Forwarded-For": "203.0.113.171" }, data: {
+  const created = await request.post("/api/v1/practices", { headers: { "X-Forwarded-For": "203.0.113.171", "X-Test-Oid": "playwright-sociobot-entra-user" }, data: {
     name: "North Star Coaching", publicSlug: slug, timezone: "Europe/London", serviceName: "Focus session",
     durationMinutes: 45, depositCents: 3500, currency: "GBP", paymentUrl: "https://example.com/hosted-payment", deliveryWebhookUrl: ""
   }});
@@ -165,21 +166,16 @@ test("@claim:card-data-excluded has no card fields before hosted payment", async
   expect(Object.keys(submitted ?? {}).some((key) => /card|pan|cvc|cvv|expiry/i.test(key))).toBe(false);
 });
 
-test("@claim:practice-publish creates a private workspace and public page", async ({ page }) => {
+test("@claim:practice-publish creates an Entra-owned workspace and public page", async ({ page, request }) => {
   const consoleErrors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
   const slug = `claim-practice-${Date.now()}`;
-  await page.goto("/start");
-  await page.getByLabel("Booking link").fill(slug);
-  await page.getByLabel("Hosted deposit URL").fill("https://payments.example.test/session");
-  await page.getByLabel("Delivery service").selectOption("resend");
-  await page.getByRole("button", { name: "Create practice workspace" }).click();
-  await expect(page).toHaveURL(/\/app$/);
-  await expect(page.getByRole("heading", { name: "Review bookings that need action" })).toBeVisible();
-  const token = await page.evaluate((key) => localStorage.getItem(key), "practice:access-token");
-  expect(token).toMatch(/^owner_/);
-  await page.getByRole("link", { name: "Open public booking page" }).click();
-  await expect(page).toHaveURL(new RegExp(`/b/${slug}$`));
+  const created = await request.post("/api/v1/practices", { headers: { "X-Forwarded-For": "203.0.113.172", "X-Test-Oid": "playwright-sociobot-entra-user" }, data: {
+    name: "North Star Coaching", publicSlug: slug, timezone: "Europe/London", serviceName: "45-minute focus session",
+    durationMinutes: 45, depositCents: 3500, currency: "GBP", paymentUrl: "https://payments.example.test/session", deliveryWebhookUrl: ""
+  }});
+  expect(created.status()).toBe(201);
+  await page.goto(`/b/${slug}`);
   await expect(page.getByRole("heading", { name: "Finish your paid session booking" })).toBeVisible();
   await expect(page.getByText("45-minute focus session")).toBeVisible();
   expect(consoleErrors).toEqual([]);
@@ -188,12 +184,13 @@ test("@claim:practice-publish creates a private workspace and public page", asyn
 test("@claim:booking-consent-record saves consent before hosted payment", async ({ page, request }) => {
   const slug = `claim-booking-${Date.now()}`;
   const clientIp = `198.51.100.${Math.floor(Math.random() * 100) + 100}`;
-  const created = await request.post("/api/v1/practices", { headers: { "X-Forwarded-For": clientIp }, data: {
+  const testOwner = `playwright-sociobot-entra-user-${slug}`;
+  const created = await request.post("/api/v1/practices", { headers: { "X-Forwarded-For": clientIp, "X-Test-Oid": testOwner }, data: {
     name: "North Star Coaching", publicSlug: slug, timezone: "Europe/London", serviceName: "45-minute focus session",
     durationMinutes: 45, depositCents: 3500, currency: "GBP", paymentUrl: "https://example.com/hosted-payment", deliveryWebhookUrl: ""
   }});
   expect(created.status()).toBe(201);
-  const owner = await created.json();
+  await created.json();
   await page.route("https://example.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<title>Hosted payment</title><h1>Hosted payment</h1>" }));
   await page.goto(`/b/${slug}`);
   await page.getByLabel("Your name").fill("Taylor Reed");
@@ -201,7 +198,7 @@ test("@claim:booking-consent-record saves consent before hosted payment", async 
   await page.getByLabel("I give email consent for this booking").check();
   await page.getByRole("button", { name: "Save booking and open payment" }).click();
   await expect(page).toHaveURL("https://example.com/hosted-payment");
-  const practiceResponse = await request.get("/api/v1/practice", { headers: { Authorization: `Bearer ${owner.accessToken}`, "X-Forwarded-For": clientIp } });
+  const practiceResponse = await request.get("/api/v1/practice", { headers: { "X-Test-Oid": testOwner, "X-Forwarded-For": clientIp } });
   const practice = await practiceResponse.json();
   expect(practice.attempts).toHaveLength(1);
   expect(practice.attempts[0]).toMatchObject({ clientName: "Taylor Reed", emailConsent: true, smsConsent: false, state: "awaiting_deposit" });

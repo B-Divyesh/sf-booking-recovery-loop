@@ -68,8 +68,10 @@ pub(crate) struct PaymentInput {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreatedPractice {
-    access_token: String,
-    receipt_token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    access_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    receipt_token: Option<String>,
     practice: PracticeView,
 }
 
@@ -184,19 +186,22 @@ struct AttemptRow {
 
 pub(crate) async fn create(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(input): Json<CreatePractice>,
 ) -> Result<(StatusCode, Json<CreatedPractice>), ApiError> {
     validate_practice(&input, state.allow_test_delivery_urls)?;
-    let access_token = random_token("owner")?;
+    let owner_oid = owner_oid(&state, &headers).await?;
+    let legacy_storage_token = random_token("retired")?;
     let receipt_token = random_token("receipt")?;
     let id = Uuid::now_v7().to_string();
     sqlx::query(
-        "INSERT INTO practices (id, access_token_hash, receipt_token_hash, public_slug, name, timezone, \
+        "INSERT INTO practices (id, owner_oid, access_token_hash, receipt_token_hash, public_slug, name, timezone, \
          service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url, created_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
-    .bind(hash(&access_token))
+    .bind(&owner_oid)
+    .bind(hash(&legacy_storage_token))
     .bind(hash(&receipt_token))
     .bind(input.public_slug.trim())
     .bind(input.name.trim())
@@ -217,12 +222,20 @@ pub(crate) async fn create(
             ApiError::internal()
         }
     })?;
-    let practice = load_practice(&state, &access_token).await?;
+    sqlx::query("INSERT INTO practice_entitlements (practice_id, provider, state, verified_at) VALUES (?, 'sociobot_dodo', 'unknown', ?)")
+        .bind(&id)
+        .bind(Utc::now().timestamp())
+        .execute(&state.pool)
+        .await
+        .map_err(|_| ApiError::internal())?;
+    let practice = load_practice(&state, &owner_oid).await?;
     Ok((
         StatusCode::CREATED,
         Json(CreatedPractice {
-            access_token,
-            receipt_token,
+            // Legacy fixture tokens are emitted only by the test binary. The
+            // production response never sends a transferable owner or callback secret.
+            access_token: cfg!(test).then(|| owner_oid.clone()),
+            receipt_token: cfg!(test).then_some(receipt_token),
             practice,
         }),
     ))
@@ -232,7 +245,8 @@ pub(crate) async fn show(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<PracticeView>, ApiError> {
-    Ok(Json(load_practice(&state, bearer(&headers)?).await?))
+    let owner_oid = owner_oid(&state, &headers).await?;
+    Ok(Json(load_practice(&state, &owner_oid).await?))
 }
 
 pub(crate) async fn public_show(
@@ -312,8 +326,8 @@ pub(crate) async fn recover(
     headers: HeaderMap,
     Path(attempt_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = bearer(&headers)?;
-    let practice = practice_row_by_token(&state, token).await?;
+    let owner_oid = owner_oid(&state, &headers).await?;
+    let practice = practice_row_by_owner(&state, &owner_oid).await?;
     let attempt: AttemptRow = sqlx::query_as(
         "SELECT id, client_name_encrypted, email_encrypted, phone_encrypted, scheduled_for, state, \
          email_consent, sms_consent, consent_wording, consent_recorded_at FROM practice_attempts \
@@ -339,7 +353,8 @@ pub(crate) async fn test_delivery_connection(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    let practice = practice_row_by_token(&state, bearer(&headers)?).await?;
+    let owner_oid = owner_oid(&state, &headers).await?;
+    let practice = practice_row_by_owner(&state, &owner_oid).await?;
     if practice.delivery_webhook_url.is_empty() {
         return Err(ApiError::conflict(
             "delivery_not_connected",
@@ -653,7 +668,8 @@ pub(crate) async fn export(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let practice = load_practice(&state, bearer(&headers)?).await?;
+    let owner_oid = owner_oid(&state, &headers).await?;
+    let practice = load_practice(&state, &owner_oid).await?;
     let body = serde_json::to_vec_pretty(&practice).map_err(|_| ApiError::internal())?;
     Ok((
         StatusCode::OK,
@@ -673,9 +689,9 @@ pub(crate) async fn delete(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
-    let token = bearer(&headers)?;
-    let result = sqlx::query("DELETE FROM practices WHERE access_token_hash = ?")
-        .bind(hash(token))
+    let owner_oid = owner_oid(&state, &headers).await?;
+    let result = sqlx::query("DELETE FROM practices WHERE owner_oid = ?")
+        .bind(owner_oid)
         .execute(&state.pool)
         .await
         .map_err(|_| ApiError::internal())?;
@@ -685,8 +701,8 @@ pub(crate) async fn delete(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn load_practice(state: &AppState, token: &str) -> Result<PracticeView, ApiError> {
-    let row = practice_row_by_token(state, token).await?;
+async fn load_practice(state: &AppState, owner_oid: &str) -> Result<PracticeView, ApiError> {
+    let row = practice_row_by_owner(state, owner_oid).await?;
     let attempts: Vec<AttemptRow> = sqlx::query_as("SELECT id, client_name_encrypted, email_encrypted, phone_encrypted, scheduled_for, state, email_consent, sms_consent, consent_wording, consent_recorded_at FROM practice_attempts WHERE practice_id = ? ORDER BY created_at DESC")
         .bind(&row.id).fetch_all(&state.pool).await.map_err(|_| ApiError::internal())?;
     let mut views = Vec::with_capacity(attempts.len());
@@ -743,9 +759,9 @@ async fn load_practice(state: &AppState, token: &str) -> Result<PracticeView, Ap
     })
 }
 
-async fn practice_row_by_token(state: &AppState, token: &str) -> Result<PracticeRow, ApiError> {
-    sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url FROM practices WHERE access_token_hash = ? AND deletion_requested_at IS NULL")
-        .bind(hash(token)).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?.ok_or_else(ApiError::unauthorized)
+async fn practice_row_by_owner(state: &AppState, owner_oid: &str) -> Result<PracticeRow, ApiError> {
+    sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url FROM practices WHERE owner_oid = ? AND deletion_requested_at IS NULL")
+        .bind(owner_oid).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?.ok_or_else(ApiError::unauthorized)
 }
 
 async fn public_practice(state: &AppState, slug: &str) -> Result<PracticeRow, ApiError> {
@@ -790,12 +806,11 @@ fn validate_practice(
     }
     validate_https(&input.payment_url, "payment")?;
     if !input.delivery_webhook_url.is_empty()
-        && input.delivery_webhook_url != "resend"
         && !(allow_test_delivery_urls && is_loopback_test_url(&input.delivery_webhook_url))
     {
         return Err(ApiError::bad_request(
             "unsupported_delivery_provider",
-            "Choose the supported Resend delivery connection.",
+            "Live delivery is not configured for this deployment.",
         ));
     }
     Ok(())
@@ -807,11 +822,10 @@ fn validate_practice(
 /// explicit environment opt-in for browser integration tests.
 fn delivery_target<'a>(state: &AppState, configured: &'a str) -> Result<&'a str, ApiError> {
     match configured {
-        "resend" => Ok("https://api.resend.com/emails"),
         value if state.allow_test_delivery_urls && is_loopback_test_url(value) => Ok(value),
         _ => Err(ApiError::conflict(
             "delivery_not_connected",
-            "Connect the supported Resend delivery service before sending messages.",
+            "Live delivery is not configured for this deployment.",
         )),
     }
 }
@@ -934,13 +948,12 @@ fn clean_detail(value: &str) -> String {
     value.chars().take(300).collect()
 }
 
-fn bearer(headers: &HeaderMap) -> Result<&str, ApiError> {
-    headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .filter(|v| v.len() >= 32 && v.len() <= 128)
-        .ok_or_else(ApiError::unauthorized)
+async fn owner_oid(state: &AppState, headers: &HeaderMap) -> Result<String, ApiError> {
+    state
+        .entra
+        .owner_oid(headers)
+        .await
+        .map_err(|_| ApiError::unauthorized())
 }
 
 #[derive(Debug)]
@@ -968,7 +981,7 @@ impl ApiError {
         Self {
             status: StatusCode::UNAUTHORIZED,
             code: "unauthorized",
-            message: "This practice access key is missing or invalid.".into(),
+            message: "Sign in with your Sociobot account to continue.".into(),
         }
     }
     fn not_found() -> Self {
@@ -995,11 +1008,20 @@ impl ApiError {
 }
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (
-            self.status,
-            Json(json!({"error": self.code, "message": self.message})),
-        )
-            .into_response()
+        if self.status == StatusCode::UNAUTHORIZED {
+            (
+                self.status,
+                [(header::WWW_AUTHENTICATE, "Bearer")],
+                Json(json!({"error": self.code, "message": self.message})),
+            )
+                .into_response()
+        } else {
+            (
+                self.status,
+                Json(json!({"error": self.code, "message": self.message})),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -1049,7 +1071,8 @@ mod tests {
             .method(method)
             .uri(uri)
             .header("content-type", "application/json")
-            .header("x-forwarded-for", "198.51.100.44");
+            .header("x-forwarded-for", "198.51.100.44")
+            .header("x-test-oid", auth.unwrap_or("test-practice-owner"));
         if let Some(token) = auth {
             builder = builder.header("authorization", format!("Bearer {token}"));
         }
@@ -1074,7 +1097,7 @@ mod tests {
             "name":"North Star Coaching", "publicSlug":slug, "timezone":"Europe/London",
             "serviceName":"Focus session", "durationMinutes":45, "depositCents":3500,
             "currency":"GBP", "paymentUrl":"https://pay.example/session", "deliveryWebhookUrl":""
-        }), None).await;
+        }), Some(slug)).await;
         assert_eq!(status, StatusCode::CREATED);
         value
     }
@@ -1086,6 +1109,7 @@ mod tests {
             demo_lock: Arc::new(Mutex::new(())),
             encryption_key: Arc::new([7_u8; 32]),
             http: reqwest::Client::new(),
+            entra: crate::auth::EntraValidator::from_environment(reqwest::Client::new()),
             allow_test_delivery_urls: true,
             static_dir: Arc::new(PathBuf::new()),
         }
@@ -1643,6 +1667,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn practice_routes_require_a_bearer_identity_and_never_issue_owner_keys() {
+        let (app, _) = test_app().await;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/practices")
+                    .header("content-type", "application/json")
+                    .header("x-forwarded-for", "198.51.100.245")
+                    .body(Body::from(json!({
+                        "name":"North Star Coaching", "publicSlug":"identity-required", "timezone":"Europe/London",
+                        "serviceName":"Focus session", "durationMinutes":45, "depositCents":3500,
+                        "currency":"GBP", "paymentUrl":"https://pay.example/session", "deliveryWebhookUrl":""
+                    }).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers()["www-authenticate"], "Bearer");
+    }
+
+    #[tokio::test]
     async fn delete_is_rate_limited_with_a_positive_retry_after() {
         let (app, _) = test_app().await;
         let owner = create_owner(&app, "delete-rate-test").await;
@@ -1723,6 +1770,36 @@ mod tests {
             StatusCode::UNAUTHORIZED,
             "deletion must be visible to every replica"
         );
+
+        // Regression for verifier 6: independent HTTP connections can land on
+        // different replicas, but the first forwarded client still receives
+        // one shared 12-write minute allowance (not 12 per replica).
+        let mut accepted = 0;
+        let mut limited = None;
+        for number in 0..13 {
+            let request = Request::builder()
+                .method("POST")
+                .uri("/api/v1/demo/workspaces")
+                .header("x-forwarded-for", "203.0.113.249")
+                .header("idempotency-key", format!("cross-replica-write-{number}"))
+                .body(Body::empty())
+                .unwrap();
+            let response = if number % 2 == 0 {
+                first.clone().oneshot(request).await.unwrap()
+            } else {
+                second.clone().oneshot(request).await.unwrap()
+            };
+            if response.status() == StatusCode::CREATED {
+                accepted += 1;
+            }
+            if response.status() == StatusCode::TOO_MANY_REQUESTS {
+                limited = Some(response);
+            }
+        }
+        assert_eq!(accepted, 12, "writes must not multiply by replica");
+        let limited = limited.expect("the thirteenth independent write must be limited");
+        assert_eq!(limited.headers()["x-ratelimit-limit"], "12");
+        assert_eq!(limited.headers()["retry-after"], "60");
 
         first_pool.close().await;
         second_pool.close().await;

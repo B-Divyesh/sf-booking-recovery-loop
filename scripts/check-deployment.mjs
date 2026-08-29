@@ -20,5 +20,8 @@ if (config.database?.engine !== "postgresql" || config.database?.connectionStrin
 if (!config.database?.backup || !config.secrets?.CONTACT_ENCRYPTION_KEY) {
   throw new Error("Production needs a backup/restore plan and a shared contact encryption key.");
 }
+if (config.environment?.DATABASE_URL !== "secretref:database-url" || config.environment?.REQUIRE_SHARED_DATABASE !== "1") {
+  throw new Error("Production must inject the shared database secret and refuse replica-local fallback.");
+}
 
 console.log("Production deployment boundary: shared PostgreSQL, shared contact key, and multi-replica-safe API");

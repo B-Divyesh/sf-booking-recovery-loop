@@ -1,4 +1,4 @@
-export type SiteRoute = "home" | "demo" | "start" | "app" | "data" | "booking" | "complete" | "privacy" | "terms" | "not-found";
+export type SiteRoute = "home" | "demo" | "start" | "app" | "data" | "auth-callback" | "booking" | "complete" | "privacy" | "terms" | "not-found";
 
 export interface PageMeta {
   readonly title: string;
@@ -37,6 +37,12 @@ const pages: Readonly<Record<SiteRoute, PageMeta>> = {
     description: "Export or delete your Booking Recovery Loop practice data.",
     heading: "Export or delete practice data",
     canonicalPath: "/app/settings/data"
+  },
+  "auth-callback": {
+    title: "Signing in — Booking Recovery Loop",
+    description: "Completing sign-in for Booking Recovery Loop.",
+    heading: "Completing sign-in",
+    canonicalPath: "/auth/callback"
   },
   booking: {
     title: "Book a paid session — Booking Recovery Loop",
@@ -86,6 +92,8 @@ export function routeFor(pathname: string, search = ""): SiteRoute {
       return "app";
     case "/app/settings/data":
       return "data";
+    case "/auth/callback":
+      return "auth-callback";
     case "/privacy":
       return "privacy";
     case "/terms":

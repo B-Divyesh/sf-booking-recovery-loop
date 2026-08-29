@@ -6,14 +6,23 @@
     "connectionStringEnv": "DATABASE_URL",
     "connectionStringSecret": "sociobot-db-runtime-url",
     "schema": "booking_recovery_loop",
-    "backup": "managed PostgreSQL point-in-time restore plus encrypted owner export"
+    "backup": "managed PostgreSQL point-in-time restore plus encrypted owner export",
+    "runtimeSecret": "booking-recovery-loop-database-url",
+    "searchPath": "booking_recovery_loop"
   },
   "secrets": {
-    "CONTACT_ENCRYPTION_KEY": "booking-recovery-loop-contact-encryption-key"
+    "CONTACT_ENCRYPTION_KEY": "booking-recovery-loop-contact-encryption-key",
+    "DATABASE_URL": "booking-recovery-loop-database-url"
   },
   "scale": {
     "minReplicas": 1,
     "maxReplicas": 3
   },
-  "reason": "Production uses the shared PostgreSQL database and a shared contact-encryption secret. Multiple replicas therefore read, delete, schedule, and rate-limit against the same durable customer-data boundary; SQLite remains local-only for no-env development and tests."
+  "environment": {
+    "PORT": "8080",
+    "DATABASE_URL": "secretref:database-url",
+    "CONTACT_ENCRYPTION_KEY": "secretref:contact-encryption-key",
+    "REQUIRE_SHARED_DATABASE": "1"
+  },
+  "reason": "Production uses the shared PostgreSQL database/schema and a shared contact-encryption secret. Multiple replicas therefore read, delete, schedule, and rate-limit against the same durable customer-data boundary; SQLite remains local-only for no-env development and tests."
 }

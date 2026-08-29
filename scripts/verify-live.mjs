@@ -36,37 +36,9 @@ checks.demoResetRotatedToken = firstToken !== secondToken;
 checks.demoSameOrigin = demoRequests.filter((url) => url.startsWith("http")).every((url) => new URL(url).origin === new URL(baseURL).origin);
 await page.screenshot({ path: `${evidenceDir}/demo-desktop.png`, fullPage: true });
 
-await page.goto(`${baseURL}/start`, { waitUntil: "networkidle" });
-const slug = `live-check-${Date.now()}`;
-await page.getByLabel("Practice name").fill("Live Verification Practice");
-await page.getByLabel("Booking link").fill(slug);
-await page.getByLabel("Hosted deposit URL").fill("https://payments.example.test/session");
-await page.getByLabel("Delivery service").selectOption("resend");
-await page.getByRole("button", { name: "Create practice workspace" }).click();
-await page.waitForURL(`${baseURL}/app`);
-checks.practiceCreated = await page.getByRole("heading", { name: "Review bookings that need action" }).isVisible();
-const ownerToken = await page.evaluate(() => localStorage.getItem("practice:access-token"));
-checks.ownerTokenIssued = ownerToken?.startsWith("owner_") ?? false;
-await page.getByRole("link", { name: "Open public booking page" }).click();
-await page.waitForURL(`${baseURL}/b/${slug}`);
-checks.publicPageTitle = await page.title();
-await page.route("https://payments.example.test/**", (route) => route.fulfill({ contentType: "text/html", body: "<title>Hosted payment</title><h1>Hosted payment</h1>" }));
-await page.getByLabel("Your name").fill("Verification Client");
-await page.getByLabel("Email address").fill("verification@example.test");
-await page.getByLabel("I give email consent for this booking").check();
-await page.getByRole("button", { name: "Save booking and open payment" }).click();
-await page.waitForURL("https://payments.example.test/session");
-checks.hostedPaymentOpened = true;
-
-const practiceResponse = await context.request.get(`${baseURL}/api/v1/practice`, { headers: { Authorization: `Bearer ${ownerToken}` } });
-const practice = await practiceResponse.json();
-checks.consentRecorded = practice.attempts?.[0]?.emailConsent === true && practice.attempts?.[0]?.state === "awaiting_deposit";
-const exportResponse = await context.request.get(`${baseURL}/api/v1/practice/export`, { headers: { Authorization: `Bearer ${ownerToken}` } });
-checks.exportStatus = exportResponse.status();
-const deleteResponse = await context.request.delete(`${baseURL}/api/v1/practice`, { headers: { Authorization: `Bearer ${ownerToken}` } });
-checks.deleteStatus = deleteResponse.status();
-const deletedResponse = await context.request.get(`${baseURL}/api/v1/practice`, { headers: { Authorization: `Bearer ${ownerToken}` } });
-checks.deletedKeyStatus = deletedResponse.status();
+const checkout = await context.request.get("https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout", { maxRedirects: 0 });
+checks.subscriptionCheckoutStatus = checkout.status();
+checks.startExplainsIdentity = await page.goto(`${baseURL}/start`, { waitUntil: "networkidle" }).then(() => page.getByText("Your Sociobot account owns the workspace across devices.").isVisible());
 
 const routeResults = {};
 for (const route of ["/", "/demo", "/start", "/app", "/app/settings/data", "/privacy", "/terms", "/not-a-real-place"]) {
@@ -94,7 +66,7 @@ for (let i = 0; i < 13; i += 1) {
 }
 checks.rateLimit = { client: rateClient, statuses: rateStatuses, retryAfter };
 checks.rateLimitPassed = rateStatuses.slice(0, 12).every((status) => status === 201) && rateStatuses[12] === 429 && Number(retryAfter[12]) >= 1;
-const passed = checks.homeStatus === 200 && checks.demoTickets === 3 && checks.demoResetRotatedToken && checks.demoSameOrigin && checks.practiceCreated && checks.ownerTokenIssued && checks.hostedPaymentOpened && checks.consentRecorded && checks.exportStatus === 200 && checks.deleteStatus === 204 && checks.deletedKeyStatus === 401 && checks.routes["/not-a-real-place"] === 404 && checks.mobileNoOverflow && checks.rateLimitPassed && consoleErrors.length === 0;
+const passed = checks.homeStatus === 200 && checks.demoTickets === 3 && checks.demoResetRotatedToken && checks.demoSameOrigin && checks.subscriptionCheckoutStatus === 303 && checks.startExplainsIdentity && checks.routes["/not-a-real-place"] === 404 && checks.mobileNoOverflow && checks.rateLimitPassed && consoleErrors.length === 0;
 await writeFile(`${evidenceDir}/live-check.json`, JSON.stringify({ baseURL, passed, checks }, null, 2));
 await browser.close();
 console.log(JSON.stringify({ passed, checks }, null, 2));

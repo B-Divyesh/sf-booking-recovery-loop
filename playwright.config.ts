@@ -25,7 +25,8 @@ export default defineConfig({
     env: {
       PORT: "4173",
       DATABASE_URL: "sqlite://booking-recovery-loop-e2e-v2.db?mode=rwc",
-      STATIC_DIR: "dist"
+      STATIC_DIR: "dist",
+      TEST_ENTRA_OID: "playwright-sociobot-entra-user"
     },
     reuseExistingServer: !process.env.CI,
     // A clean Rust toolchain can spend several minutes compiling sqlx. Claims

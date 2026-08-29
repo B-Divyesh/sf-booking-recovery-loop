@@ -19,7 +19,6 @@ import {
   createPractice,
   deletePractice,
   loadPractice,
-  PRACTICE_TOKEN_KEY,
   publicPractice,
   recoverPracticeAttempt,
   testDeliveryConnection,
@@ -27,6 +26,7 @@ import {
   type PublicPractice,
   type ScheduledJob
 } from "./lib/practice";
+import { accessToken, initialiseIdentity, signIn, signOut, signedInName } from "./lib/auth";
 
 const applicationRoot = document.querySelector<HTMLDivElement>("#app");
 if (!applicationRoot) {
@@ -45,6 +45,7 @@ let publicPage: PublicPractice | null = null;
 let practiceLoading = false;
 let practiceError: string | null = null;
 let practiceNotice: string | null = null;
+let identityName: string | null = null;
 
 function homeContent(): string {
   return `
@@ -130,8 +131,8 @@ function homeContent(): string {
       <div class="plan-copy">
         <p>Recovery Loop Practice is $29 per month for one practice.</p>
         <p>Publish one session page, record email or SMS consent, and review delivery receipts.</p>
-        <p class="action-note">Checkout is not available yet. You can create a workspace and test the delivery connection now.</p>
-        <div class="button-row"><a class="button button-primary" href="/start">Set up your practice</a></div>
+        <p class="action-note">The hosted checkout starts the $29 monthly practice subscription. Sign in to create the workspace after checkout.</p>
+        <div class="button-row"><a class="button button-primary" href="https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout">Start Recovery Loop Practice</a><a class="button button-secondary" href="/start">Set up your practice</a></div>
       </div>
     </section>`;
 }
@@ -270,7 +271,7 @@ function startContent(): string {
   return `<article class="setup-page">
     <p class="eyebrow">Practice setup</p>
     <h1 tabindex="-1">Set up your booking recovery page</h1>
-    <p class="policy-lede">Create one paid-session page. The service schedules a consented recovery message 15 minutes after an unpaid booking. A private access key is saved in this browser.</p>
+    <p class="policy-lede">Create one paid-session page. Your Sociobot account owns the workspace across devices.</p>
     ${practiceNotice ? `<p class="inline-notice" role="status" aria-live="polite">${escapeHtml(practiceNotice)}</p>` : ""}
     <form class="setup-form" data-form="create-practice">
       <fieldset><legend>Practice</legend>
@@ -289,8 +290,8 @@ function startContent(): string {
         <p id="payment-help" class="field-help">Paste the secure payment page you already use. The booking form has no card fields.</p>
       </fieldset>
       <fieldset><legend>Delivery connection</legend>
-        <label>Delivery service<select name="deliveryWebhookUrl" required aria-describedby="delivery-help"><option value="resend">Resend email delivery</option></select></label>
-        <p id="delivery-help" class="field-help">Connect the supported delivery service in your practice settings. Booking Recovery Loop never sends client data to an owner-entered URL.</p>
+        <p id="delivery-help" class="field-help">Live email and SMS delivery are not enabled in this deployment. The product will not accept client contact data for a provider connection until a credentialed provider is configured.</p>
+        <input name="deliveryWebhookUrl" type="hidden" value="">
       </fieldset>
       <button class="button button-primary" type="submit">Create practice workspace</button>
     </form>
@@ -299,17 +300,15 @@ function startContent(): string {
 
 function appContent(): string {
   if (practiceLoading) return statePage("Review bookings that need action", "Loading your practice workspace.");
-  const token = localStorage.getItem(PRACTICE_TOKEN_KEY);
-  if (!token || practiceError) {
+  if (!identityName || practiceError) {
     return `<article class="setup-page"><p class="eyebrow">Private practice</p><h1 tabindex="-1">Open your recovery queue</h1>
-      <p class="policy-lede">Paste the private access key saved when this practice was created.</p>
+      <p class="policy-lede">Sign in with your Sociobot account to open your practice workspace.</p>
       ${practiceError ? `<p class="inline-notice notice-error" role="alert">${escapeHtml(practiceError)}</p>` : ""}
-      <form class="access-form" data-form="open-practice"><label>Private access key<input name="accessToken" required autocomplete="off" spellcheck="false"></label><button class="button button-primary" type="submit">Open recovery queue</button></form>
-      <p><a href="/start">Create a practice workspace</a></p></article>`;
+      <div class="button-row"><button class="button button-primary" type="button" data-action="sign-in">Sign in</button><a class="button button-secondary" href="/start">Create a practice workspace</a></div></article>`;
   }
   if (!practice) return statePage("Review bookings that need action", "Loading your practice workspace.");
   return `<section class="practice-heading"><div><p class="eyebrow">${escapeHtml(practice.name)}</p><h1 tabindex="-1">Review bookings that need action</h1><p class="lede">Recovery and reminders run automatically when their due time arrives. Email or SMS consent decides the channel.</p></div>
-    <div class="button-row"><button class="button button-secondary" type="button" data-action="test-delivery">Send delivery test</button><a class="button button-secondary" href="/b/${escapeHtml(practice.publicSlug)}">Open public booking page</a><a class="button button-secondary" href="/app/settings/data">Manage data</a></div></section>
+    <div class="button-row"><a class="button button-secondary" href="/b/${escapeHtml(practice.publicSlug)}">Open public booking page</a><a class="button button-secondary" href="/app/settings/data">Manage data</a></div></section>
     ${practiceNotice ? `<p class="inline-notice" role="status" aria-live="polite">${escapeHtml(practiceNotice)}</p>` : ""}
     <section class="practice-board" aria-labelledby="attempts-title"><h2 id="attempts-title">Booking attempts</h2>
       ${practice.attempts.length === 0 ? `<div class="state-panel"><div><h3>No bookings need attention</h3><p>New bookings from your public page will appear here.</p></div></div>` : `<ul class="practice-attempts">${practice.attempts.map((attempt) => `<li><article><div class="attempt-top"><h3>${escapeHtml(attempt.clientName)}</h3><span class="status ${attempt.state === "recovered" ? "status-good" : "status-attention"}">${escapeHtml(attempt.state.replaceAll("_", " "))}</span></div><p>${formatDateTime(attempt.scheduledFor)}</p><p>Email consent: <strong>${attempt.emailConsent ? "Recorded" : "Missing"}</strong> · SMS consent: <strong>${attempt.smsConsent ? "Recorded" : "Missing"}</strong></p><p class="evidence-time">Consent recorded ${formatDateTime(attempt.consentRecordedAt)}</p>${scheduledJobs(attempt.scheduledJobs)}${attempt.events.length ? `<ol class="receipt-timeline">${attempt.events.map((event) => `<li><span class="receipt-node" aria-hidden="true">✓</span><div><strong>${titleCase(event.status)} · ${escapeHtml(event.channel)}</strong><time datetime="${escapeHtml(event.occurredAt)}">${formatDateTime(event.occurredAt)}</time><p>${escapeHtml(event.detail)}</p></div></li>`).join("")}</ol>` : `<p>No delivery receipt yet.</p>`}${attempt.scheduledJobs.some((job) => job.status === "failed") ? `<button class="button button-secondary" type="button" data-action="recover-practice" data-attempt-id="${escapeHtml(attempt.id)}">Retry delivery now</button>` : ""}</article></li>`).join("")}</ul>`}
@@ -335,9 +334,11 @@ function completeContent(): string {
 
 function dataContent(): string {
   if (practiceLoading) return statePage("Export or delete practice data", "Loading your practice workspace.");
-  const token = localStorage.getItem(PRACTICE_TOKEN_KEY);
-  const receiptToken = localStorage.getItem("practice:receipt-token");
-  return `<article class="policy-page"><p class="eyebrow">Practice data</p><h1 tabindex="-1">Export or delete practice data</h1><p class="policy-lede">Export stays available without a delivery connection. Deletion removes the practice, booking attempts, encrypted contacts, and receipts.</p>${token ? `${practice && receiptToken ? `<section><h2>Private access and provider callbacks</h2><p>Save the access key to open this practice on another device. Give callback details only to your providers.</p><dl class="service-summary"><div><dt>Private access key</dt><dd><code>${escapeHtml(token)}</code></dd></div><div><dt>Payment callback</dt><dd><code>${escapeHtml(window.location.origin)}/api/v1/provider/${escapeHtml(practice.id)}/payments</code></dd></div><div><dt>Delivery callback</dt><dd><code>${escapeHtml(window.location.origin)}/api/v1/provider/${escapeHtml(practice.id)}/receipts</code></dd></div><div><dt>Callback token</dt><dd><code>${escapeHtml(receiptToken)}</code></dd></div></dl></section>` : ""}<div class="button-row"><a class="button button-secondary" href="/api/v1/practice/export" data-action="export-practice">Export practice JSON</a><button class="button button-danger" type="button" data-action="delete-practice">Delete practice data</button></div>` : `<p>No private access key is saved in this browser.</p><a class="button button-primary" href="/app">Open your recovery queue</a>`}</article>`;
+  return `<article class="policy-page"><p class="eyebrow">Practice data</p><h1 tabindex="-1">Export or delete practice data</h1><p class="policy-lede">Export stays available without a delivery connection. Deletion removes the practice, booking attempts, encrypted contacts, and receipts.</p>${identityName ? `<section><h2>Account access</h2><p>${escapeHtml(identityName)} is signed in through Sociobot Entra External ID. No access key or callback secret is stored in this browser.</p></section><div class="button-row"><button class="button button-secondary" type="button" data-action="export-practice">Export practice JSON</button><button class="button button-danger" type="button" data-action="delete-practice">Delete practice data</button></div>` : `<p>Sign in to export or delete a practice.</p><button class="button button-primary" type="button" data-action="sign-in">Sign in</button>`}</article>`;
+}
+
+function authCallbackContent(): string {
+  return `<article class="policy-page"><p class="eyebrow">Account access</p><h1 tabindex="-1">Completing sign-in</h1><p class="policy-lede">Your Sociobot account is being checked. You can return to your recovery queue when this page updates.</p><a class="button button-primary" href="/app">Open recovery queue</a></article>`;
 }
 
 function statePage(title: string, message: string): string { return `<section class="demo-heading"><h1 tabindex="-1">${escapeHtml(title)}</h1><div class="state-panel" role="status"><div><h2>Please wait</h2><p>${escapeHtml(message)}</p></div></div></section>`; }
@@ -395,6 +396,8 @@ function contentFor(route: SiteRoute): string {
       return appContent();
     case "data":
       return dataContent();
+    case "auth-callback":
+      return authCallbackContent();
     case "booking":
       return bookingContent();
     case "complete":
@@ -457,7 +460,7 @@ function render({ focusHeading = false }: { focusHeading?: boolean } = {}): void
     ${route === "demo" ? demoBanner() : ""}
     <header class="site-header">
       <a class="wordmark" href="/" aria-label="Booking Recovery Loop home"><span aria-hidden="true"></span>Booking Recovery Loop</a>
-      <nav aria-label="Primary navigation">${navigation(route)}</nav>
+      <nav aria-label="Primary navigation">${navigation(route)}${identityName ? `<button class="nav-account" type="button" data-action="sign-out">Sign out</button>` : `<button class="nav-account" type="button" data-action="sign-in">Sign in</button>`}</nav>
     </header>
     <main id="main" class="main-${route}" tabindex="-1">${contentFor(route)}</main>
     <footer class="site-footer">
@@ -473,7 +476,7 @@ function render({ focusHeading = false }: { focusHeading?: boolean } = {}): void
   if (route === "demo" && !demoEnvelope && !demoLoading && !demoError) {
     void initialiseDemo();
   }
-  if ((route === "app" || route === "data") && localStorage.getItem(PRACTICE_TOKEN_KEY) && !practice && !practiceLoading && !practiceError) {
+  if ((route === "app" || route === "data") && identityName && !practice && !practiceLoading && !practiceError) {
     void initialisePractice();
   }
   if (route === "booking" && !publicPage && !practiceLoading && !practiceError) {
@@ -482,10 +485,8 @@ function render({ focusHeading = false }: { focusHeading?: boolean } = {}): void
 }
 
 async function initialisePractice(): Promise<void> {
-  const token = localStorage.getItem(PRACTICE_TOKEN_KEY);
-  if (!token) return;
   practiceLoading = true; practiceError = null; render();
-  try { practice = await loadPractice(token); }
+  try { practice = await loadPractice(); }
   catch (error) { practiceError = messageFor(error); practice = null; }
   finally { practiceLoading = false; render(); }
 }
@@ -642,39 +643,36 @@ document.addEventListener("click", (event) => {
   }
   if (action === "recover-practice") {
     const attemptId = actionTarget?.dataset.attemptId;
-    const token = localStorage.getItem(PRACTICE_TOKEN_KEY);
-    if (attemptId && token) void (async () => {
+    if (attemptId) void (async () => {
       practiceNotice = "Checking consent and asking the delivery service to send."; render();
-      try { await recoverPracticeAttempt(token, attemptId); practiceNotice = "The delivery service accepted the recovery message."; practice = await loadPractice(token); }
+      try { await recoverPracticeAttempt(attemptId); practiceNotice = "The delivery service accepted the recovery message."; practice = await loadPractice(); }
       catch (error) { practiceNotice = messageFor(error); }
       render();
     })();
     return;
   }
   if (action === "test-delivery") {
-    const token = localStorage.getItem(PRACTICE_TOKEN_KEY);
-    if (token) void (async () => {
+    if (identityName) void (async () => {
       practiceNotice = "Sending a delivery connection test without client data."; render();
-      try { await testDeliveryConnection(token); practiceNotice = "The delivery service accepted the connection test. No client data was sent."; }
+      try { await testDeliveryConnection(); practiceNotice = "The delivery service accepted the connection test. No client data was sent."; }
       catch (error) { practiceNotice = messageFor(error); }
       render();
     })();
     return;
   }
   if (action === "export-practice") {
-    event.preventDefault();
-    const token = localStorage.getItem(PRACTICE_TOKEN_KEY);
-    if (token) void exportPractice(token);
+    if (identityName) void exportPractice();
     return;
   }
   if (action === "delete-practice") {
-    const token = localStorage.getItem(PRACTICE_TOKEN_KEY);
-    if (token && window.confirm("Delete this practice and every booking record? This cannot be undone.")) void (async () => {
-      try { await deletePractice(token); localStorage.removeItem(PRACTICE_TOKEN_KEY); practice = null; practiceNotice = null; navigate(new URL("/", window.location.origin), true); }
+    if (identityName && window.confirm("Delete this practice and every booking record? This cannot be undone.")) void (async () => {
+      try { await deletePractice(); practice = null; practiceNotice = null; navigate(new URL("/", window.location.origin), true); }
       catch (error) { practiceNotice = messageFor(error); render(); }
     })();
     return;
   }
+  if (action === "sign-in") { void signIn(); return; }
+  if (action === "sign-out") { void signOut(); return; }
 
   const anchor = internalAnchor(event);
   if (!anchor) return;
@@ -701,15 +699,10 @@ document.addEventListener("submit", (event) => {
     practiceNotice = "Creating the private practice workspace."; render();
     try {
       const result = await createPractice({ name: data.get("name"), publicSlug: data.get("publicSlug"), timezone: data.get("timezone"), serviceName: data.get("serviceName"), durationMinutes: Number(data.get("durationMinutes")), depositCents: Number(data.get("depositCents")), currency: data.get("currency"), paymentUrl: data.get("paymentUrl"), deliveryWebhookUrl: data.get("deliveryWebhookUrl") });
-      localStorage.setItem(PRACTICE_TOKEN_KEY, result.accessToken);
-      localStorage.setItem("practice:receipt-token", result.receiptToken);
-      practice = result.practice; practiceNotice = "Practice created. The private access key is saved in this browser.";
+      practice = result.practice; practiceNotice = "Practice created for your signed-in account.";
       navigate(new URL("/app", window.location.origin), true);
     } catch (error) { practiceNotice = messageFor(error); render(); }
   })();
-  if (form.dataset.form === "open-practice") {
-    localStorage.setItem(PRACTICE_TOKEN_KEY, String(data.get("accessToken") ?? "")); practice = null; practiceError = null; void initialisePractice();
-  }
   if (form.dataset.form === "create-booking") void (async () => {
     const slug = window.location.pathname.split("/")[2] ?? "";
     const scheduled = new Date(String(data.get("scheduledFor"))).toISOString();
@@ -721,7 +714,9 @@ document.addEventListener("submit", (event) => {
   })();
 });
 
-async function exportPractice(token: string): Promise<void> {
+async function exportPractice(): Promise<void> {
+  const token = await accessToken();
+  if (!token) { practiceNotice = "Sign in to download this export."; render(); return; }
   const response = await fetch("/api/v1/practice/export", { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) { practiceNotice = "The export did not finish. Try again."; render(); return; }
   const url = URL.createObjectURL(await response.blob()); const link = document.createElement("a"); link.href = url; link.download = "booking-recovery-export.json"; link.click(); URL.revokeObjectURL(url);
@@ -793,4 +788,8 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#039;");
 }
 
+void initialiseIdentity().then(async () => {
+  identityName = await signedInName();
+  render({ focusHeading: window.location.pathname === "/auth/callback" });
+});
 render();

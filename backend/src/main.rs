@@ -1,3 +1,4 @@
+mod auth;
 mod migrations;
 mod routes;
 
@@ -31,6 +32,7 @@ const GENERAL_BURST: u32 = 40;
 const WRITE_BURST: u32 = 12;
 const WRITE_REPLENISH_SECONDS: u64 = 60;
 const SHARED_API_REQUESTS_PER_SECOND: i64 = 40;
+const SHARED_WRITE_REQUESTS_PER_MINUTE: i64 = 12;
 
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -39,6 +41,7 @@ pub(crate) struct AppState {
     pub(crate) demo_lock: Arc<Mutex<()>>,
     pub(crate) encryption_key: Arc<[u8; 32]>,
     pub(crate) http: reqwest::Client,
+    pub(crate) entra: auth::EntraValidator,
     /// This exists only for isolated integration tests which run a loopback
     /// delivery fixture. Production never honours owner supplied URLs.
     pub(crate) allow_test_delivery_urls: bool,
@@ -61,19 +64,18 @@ pub(crate) fn app_router_with_key(
     encryption_key: [u8; 32],
 ) -> Router {
     let static_dir = static_dir.into();
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("HTTP client configuration is valid");
     let state = AppState {
         build_sha: build_sha.into(),
         pool,
         demo_lock: Arc::new(Mutex::new(())),
         encryption_key: Arc::new(encryption_key),
-        http: reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            // Delivery providers must not be allowed to turn a POST into a
-            // request to a different host. The provider client is deliberately
-            // configured with a fixed URL as well (see practice.rs).
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .expect("HTTP client configuration is valid"),
+        entra: auth::EntraValidator::from_environment(http.clone()),
+        http,
         allow_test_delivery_urls: cfg!(test)
             || env::var("ALLOW_UNSAFE_TEST_DELIVERY_URLS").ok().as_deref() == Some("1"),
         static_dir: Arc::new(static_dir.clone()),
@@ -197,6 +199,7 @@ pub(crate) fn app_router_with_key(
         .route("/start", get(spa_index))
         .route("/app", get(spa_index))
         .route("/app/settings/data", get(spa_index))
+        .route("/auth/callback", get(spa_index))
         .route("/b/{slug}", get(spa_index))
         .route("/b/{slug}/complete", get(spa_index))
         .route("/404", get(spa_index))
@@ -221,7 +224,7 @@ pub(crate) fn app_router_with_key(
         .layer(SetResponseHeaderLayer::if_not_present(
             header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static(
-                "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'",
+                "default-src 'self'; base-uri 'self'; connect-src 'self' https://sociobotcustomers.ciamlogin.com https://api.sociobot.in; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'",
             ),
         ))
         .layer(PropagateRequestIdLayer::new(HeaderName::from_static(
@@ -251,24 +254,48 @@ async fn shared_api_rate_limit(
         .filter(|value| !value.is_empty())
         .unwrap_or("unknown");
     let now = chrono::Utc::now().timestamp();
-    let window_start = now;
+    let is_write = request.method() == Method::POST;
+    // Writes deliberately use a minute bucket. The value is authoritative in
+    // PostgreSQL, so changing HTTP connections or replicas cannot multiply a
+    // 12-write allowance. Reads retain the short 40-request burst window.
+    let (window_start, key, limit, retry_after) = if is_write {
+        (
+            now - now.rem_euclid(WRITE_REPLENISH_SECONDS as i64),
+            format!("write:{client}"),
+            SHARED_WRITE_REQUESTS_PER_MINUTE,
+            WRITE_REPLENISH_SECONDS.to_string(),
+        )
+    } else {
+        (
+            now,
+            format!("read:{client}"),
+            SHARED_API_REQUESTS_PER_SECOND,
+            "1".to_owned(),
+        )
+    };
     let hits = sqlx::query_scalar::<_, i64>(
         "INSERT INTO api_rate_windows (client_key, window_start, hits) VALUES (?, ?, 1) \
          ON CONFLICT (client_key, window_start) DO UPDATE SET hits = api_rate_windows.hits + 1 \
          RETURNING hits",
     )
-    .bind(client)
+    .bind(key)
     .bind(window_start)
     .fetch_one(&state.pool)
     .await;
     match hits {
-        Ok(hits) if hits <= SHARED_API_REQUESTS_PER_SECOND => next.run(request).await,
+        Ok(hits) if hits <= limit => next.run(request).await,
         Ok(_) => (
             StatusCode::TOO_MANY_REQUESTS,
             [
-                (header::RETRY_AFTER, "1"),
-                (HeaderName::from_static("x-ratelimit-after"), "1"),
-                (HeaderName::from_static("x-ratelimit-limit"), "40"),
+                (header::RETRY_AFTER, retry_after.as_str()),
+                (
+                    HeaderName::from_static("x-ratelimit-after"),
+                    retry_after.as_str(),
+                ),
+                (
+                    HeaderName::from_static("x-ratelimit-limit"),
+                    if is_write { "12" } else { "40" },
+                ),
                 (HeaderName::from_static("x-ratelimit-remaining"), "0"),
             ],
             "Too many requests. Try again after the stated delay.",
@@ -391,6 +418,11 @@ async fn main() {
     };
     let database_url = env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite:///data/booking-recovery-loop.db?mode=rwc".to_owned());
+    if env::var("REQUIRE_SHARED_DATABASE").ok().as_deref() == Some("1")
+        && !database_url.starts_with("postgres")
+    {
+        panic!("REQUIRE_SHARED_DATABASE=1 requires a PostgreSQL DATABASE_URL");
+    }
     let static_dir = env::var("STATIC_DIR").unwrap_or_else(|_| {
         if PathBuf::from("/app/dist/index.html").exists() {
             "/app/dist".to_owned()
@@ -441,6 +473,7 @@ async fn main() {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .expect("HTTP client configuration is valid"),
+        entra: auth::EntraValidator::from_environment(reqwest::Client::new()),
         allow_test_delivery_urls: false,
         static_dir: Arc::new(PathBuf::new()),
     };

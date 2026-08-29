@@ -119,7 +119,7 @@ test("history navigation restores the route and focuses its heading", async ({ p
 test("public booking page is accessible and reflows at 390px", async ({ page, request }, testInfo) => {
   const slug = `a11y-booking-${Date.now()}`;
   const ip = `203.0.113.${testInfo.workerIndex + 120}`;
-  const created = await request.post("/api/v1/practices", { headers: { "X-Forwarded-For": ip }, data: {
+  const created = await request.post("/api/v1/practices", { headers: { "X-Forwarded-For": ip, "X-Test-Oid": "playwright-sociobot-entra-user" }, data: {
     name: "North Star Coaching", publicSlug: slug, timezone: "Europe/London", serviceName: "Focus session",
     durationMinutes: 45, depositCents: 3500, currency: "GBP", paymentUrl: "https://example.com/pay", deliveryWebhookUrl: ""
   }});

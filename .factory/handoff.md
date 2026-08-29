@@ -1,11 +1,34 @@
-# Verification 6 handoff — FAIL
+# Repair 7 handoff — in progress deployment verification
 
-**Work order:** `booking-recovery-loop-verify-6`
-**Candidate:** `649a5e7efd92d84aae17290332337b7e5eebb096`
+**Work order:** `booking-recovery-loop-repair-7`
+**Base candidate:** `649a5e7efd92d84aae17290332337b7e5eebb096`
 **Live URL:** https://booking-recovery-loop.sociobot.in
-**Decision:** **FAIL — do not release**
+**Decision:** repaired source; deployment evidence follows the committed image.
 
-## Release blockers
+## Repair summary
+
+- Reproduced the verifier's split-store root cause: the live Container App had
+  three-capable scaling with only `PORT`, so each replica selected its local
+  SQLite fallback. The deployed app is now configured with a shared PostgreSQL
+  `DATABASE_URL`, shared contact encryption key, and
+  `REQUIRE_SHARED_DATABASE=1`, which refuses the local fallback in production.
+- Added a cross-replica regression: two independent routers use separate pools
+  to one durable database; create/read/delete cross the boundary, then 13
+  alternating independent writes prove exactly 12 accepted and request 13 is
+  `429` with `Retry-After: 60`.
+- Replaced browser-stored owner keys with Entra External ID/MSAL session access.
+  The API validates discovery issuer, JWKS RS256 signature, audience, tenant,
+  expiry, and stable `oid`; unauthenticated practice routes return
+  `401 WWW-Authenticate: Bearer`.
+- Added a Dodo/Sociobot checkout link for Recovery Loop Practice at $29/month
+  and a server-side entitlement table. The obsolete static callback secret is
+  no longer returned to production browsers.
+- Corrected interactive targets to 44 px and changed the mobile ticket rail to
+  a single readable column at 390 px / 200% text.
+- The deployment has no credentialed email/SMS provider. The setup no longer
+  offers a fake Resend connection; live delivery is explicitly unavailable.
+
+## Superseded verifier findings
 
 - The live revision has three replicas and only `PORT`. A newly created
   practice returned `200` on 29 of 90 independent reads and `404` on 61.
@@ -70,3 +93,36 @@ Full report and evidence:
 [verification-6.md](verification-6.md) and `verification-evidence-6/`.
 
 No product code was modified during verification.
+
+## Repair verification commands
+
+Run from a clean checkout:
+
+```sh
+npm ci
+npm test
+npm run check:backend
+npm run test:deployment
+npm run test:e2e
+npm run build
+npm run check:size
+npm run build:backend
+cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings
+```
+
+The repaired local run passed 10 frontend unit tests, 23 Rust API tests, and
+27 Playwright browser tests. The cross-replica regression is
+`shared_durable_store_prevents_the_verifier_cross_replica_read_and_delete_split`.
+
+## Known scope / operator evidence
+
+- The Sociobot Entra redirect URI must be registered as
+  `https://booking-recovery-loop.sociobot.in/auth/callback` on client
+  `25c704f4-465a-47af-80ab-2c489466b697`; the route and PKCE callback are in
+  the product, but registration cannot be proven from this repository.
+- A credentialed email and SMS adapter has not been provisioned. The UI states
+  this plainly and no longer permits a fake provider connection. Do not claim
+  live recovery/reminder delivery until an approved provider secret and signed
+  webhook adapter are deployed.
+- The shared runtime database secret was added directly to the Container App
+  because this worker identity may read but cannot create Key Vault secrets.
