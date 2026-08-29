@@ -458,9 +458,20 @@ async fn main() {
         .connect(&database_url)
         .await
         .expect("the configured shared database must open");
-    migrations::up(&pool)
-        .await
-        .expect("the demo database migration must apply");
+    // sqlx's PostgreSQL migrator holds a session advisory lock. The factory's
+    // managed URL is PgBouncer transaction pooling, where a subsequent
+    // unlock can be assigned a different physical connection and leave that
+    // lock behind. Migrations are therefore a one-shot release operation for
+    // the shared database (run with RUN_MIGRATIONS=1), never a replica startup
+    // operation. SQLite remains self-starting for the no-config local path.
+    let run_migrations = !uses_postgres || env::var("RUN_MIGRATIONS").ok().as_deref() == Some("1");
+    if run_migrations {
+        migrations::up(&pool)
+            .await
+            .expect("the demo database migration must apply");
+    } else {
+        info!("shared PostgreSQL migrations are managed by the release job");
+    }
 
     let key_path = env::var("CONTACT_KEY_FILE").unwrap_or_else(|_| "/data/contact.key".to_owned());
     let (encryption_key, key_source) =
