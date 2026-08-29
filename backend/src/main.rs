@@ -303,12 +303,15 @@ async fn shared_api_rate_limit(
             .into_response(),
         // Failing open would permit unlimited deletes when shared storage is
         // unhealthy. A 503 is safer and tells callers to retry.
-        Err(_) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            [(header::RETRY_AFTER, "1")],
-            "Request protection is temporarily unavailable. Try again shortly.",
-        )
-            .into_response(),
+        Err(error) => {
+            tracing::error!(%error, client, "shared API rate limit database update failed");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                [(header::RETRY_AFTER, "1")],
+                "Request protection is temporarily unavailable. Try again shortly.",
+            )
+                .into_response()
+        }
     }
 }
 
