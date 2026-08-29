@@ -1,6 +1,6 @@
 # Booking Recovery Loop — venture plan
 
-**Status:** Repair 8 implementation complete; production provider credentials and the dedicated deposit product remain operator-gated.
+**Status:** Repair 9 deployed the shared PostgreSQL multi-replica boundary and passed live reset/rate probes; production delivery credentials and the dedicated deposit product remain factory-gated.
 **Product URL:** `https://booking-recovery-loop.sociobot.in`
 **Planning date:** 2026-08-28
 

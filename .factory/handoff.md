@@ -1,73 +1,103 @@
-# Verification 8 handoff — FAIL
+# Repair 9 handoff — P1 repaired; P0 external release blockers remain
 
-**Candidate:** `f9cc5c560ee8d548b4fbc29dde043ea5a062280b`
-
+**Work order:** `booking-recovery-loop-repair-9`
+**Verifier report:** [verification-8.md](verification-8.md)
+**Failed candidate:** `f9cc5c560ee8d548b4fbc29dde043ea5a062280b`
+**Repair commit:** `522dbd0e88f1876f4dcc811be6936b7d6de2c1f5`
+**Live revision:** `sf-booking-recovery-loop--0000035`
 **Live URL:** <https://booking-recovery-loop.sociobot.in>
 
-**Report:** [verification-8.md](verification-8.md)
+## Outcome
 
-**Decision:** **FAIL — do not release.**
+The multi-replica privacy and rate-limit defects from Verification 8 are
+repaired in both source and production. The deployed service now uses the
+factory shared PostgreSQL runtime URL, a shared server-side contact encryption
+key, and `REQUIRE_SHARED_DATABASE=1`; it cannot fall back to replica-local
+SQLite. The migration ran once on revision `0000034` with the factory migration
+URL. Revision `0000035` uses the runtime URL and omits `RUN_MIGRATIONS`.
 
-## Blocking evidence
+The two P0 external service boundaries remain unavailable and keep this product
+**not releasable**: the required dedicated variable-amount deposit product is
+not registered at the Sociobot billing boundary, and no approved dual-channel
+delivery relay endpoint/token/callback secret has been provisioned. The app
+fails closed and now reports the missing billing product honestly rather than
+calling any non-empty slug “configured.” No substitute payment provider,
+simulated live delivery, or client-side secret was introduced.
 
-1. Live delivery is still unconfigured:
-   `/api/v1/integrations/status` returns `delivery.configured: false`.
-2. The exact dedicated client-deposit checkout POST returns 404 for
-   `booking-recovery-loop-deposit`. The working `$29/month` practice checkout
-   is a separate product and cannot replace it.
-3. The 12-write allowance is not global. Forty concurrent writes from one
-   forwarded IP produced 36×201 and 4×429 (`Retry-After: 60`), or 12 accepted
-   per each of three replicas.
-4. Reset is not globally revocable. After one reset, 16 of 24 reads with the
-   old token still returned 200 across two old workspace IDs.
-5. Several auth/secret-boundary claims in README/setup copy are not explicitly
-   represented in `.factory/claims.json`.
+## Repairs and regression coverage
 
-The live `/health`, footer, and byte-for-byte JS/CSS comparison all confirm
-that production is candidate `f9cc5c560ee8d548b4fbc29dde043ea5a062280b`.
-This is fresh deployment behavior, not a stale revision.
+| Verification 8 finding | Repair | Exact coverage / evidence |
+| --- | --- | --- |
+| P1: 12-write allowance multiplied per replica | Deployed the declared shared PostgreSQL topology. Added a four-replica, 40-concurrent-write regression that requires exactly 12 `201` and 28 `429` responses. | `@claim:forwarded-rate-limit`; live [check](repair-9-evidence/live/live-check.json) recorded 12 created, 28 limited, `X-RateLimit-Limit: 12`, and `Retry-After: 60` for every limit. |
+| P1: Reset left the old demo token usable on other replicas | Added a four-replica reset regression which fans 24 old-token reads across the shared store and requires every response to be `404`. | `@claim:demo-reset`; live [check](repair-9-evidence/live/live-check.json) recorded 24×`404`. |
+| P1: billing status inferred readiness from a slug | `/api/v1/integrations/status` now verifies the non-mutating Sociobot product registry before reporting billing configured. It also has a no-secret serialization regression. | `@claim:server-owned-integration-boundary`; live status reports `billing.configured: false` for the absent deposit product. |
+| P1: public auth and secret-boundary statements were absent from claims | Added explicit claim records and executable coverage. Extracted production JWT validation to a testable boundary and explicitly enabled `nbf` enforcement. | `@claim:entra-token-validation` signs an isolated RS256 token and rejects invalid issuer, audience, tenant, oid, expiry, nbf, and tampered signature. |
 
-## What passed
+All 26 manifest commands were run individually after `npm ci`, including the
+four new/replaced claim checks. The existing UI reset test remains in the
+browser suite; the claim now points to the stronger shared-store concurrency
+test that reproduces the verifier's failed topology.
 
-- After `npm ci`, every one of the 24 claim commands passed separately.
-- `npm test`: 10 passed.
-- `npm run check:backend`: rustfmt plus 24 tests passed.
-- Clippy with warnings denied passed.
-- `npm run test:deployment` passed.
-- `npm run test:e2e`: 28 passed.
-- Candidate-stamped frontend and locked release backend builds passed.
-- Candidate-stamped JS is 79,444 bytes gzip; CSS is 22,252 bytes raw.
-- Fresh mobile Lighthouse scored 100 in all four categories; LCP 1.7 s and
-  CLS 0.
-- Cold first read, one-click sample, desktop, 390 px, 200% text, reduced
-  motion, keyboard/focus, same-origin demo traffic, security headers, caching,
-  route metadata, link crawl, and serious/critical axe checks passed.
-- The required Sociobot Entra authority, tenant, client, redirect URI, and PKCE
-  S256 flow are present.
+## Verification
 
-The first pre-install claim invocation could not start the 10 Playwright tests
-because dependencies were absent; the 14 Rust commands passed. After the clean
-lockfile install, all 24 were rerun and passed. Docker is unavailable in the
-worker container, so the Dockerfile was inspected rather than executed.
-
-## How to reproduce
+Clean local install and quality gates passed on 2026-08-29 UTC:
 
 ```sh
 npm ci
-npm test
-npm run check:backend
+npm test                         # 10 passed
+npm run check:backend            # rustfmt + 29 Rust tests
 cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings
 npm run test:deployment
-npm run test:e2e
-VITE_BUILD_SHA=f9cc5c560ee8d548b4fbc29dde043ea5a062280b npm run build
-npm run check:size
-BUILD_SHA=f9cc5c560ee8d548b4fbc29dde043ea5a062280b cargo build --release --locked --manifest-path backend/Cargo.toml
+npm run test:e2e                 # 28 Chromium tests
+npm run build
+npm run check:size               # 79,408 B gzip JS; 22,252 B CSS
+npm run build:backend
 ```
 
-Then verify the live integration status and dedicated deposit endpoint. Use a
-fresh forwarded client identity for rate tests; send 40 writes concurrently,
-not over one sticky connection. For reset, fan the original token across
-replicas before resetting, then retry the old token concurrently.
+- The browser suite covers desktop, 390 px, 200% text, reduced motion,
+  keyboard recovery, focus/skip link, routes, 404, offline error state,
+  same-origin demo privacy, and response headers.
+- [verify-url evidence](repair-9-evidence/live/verify-url/verify.json) has a
+  title, `lang=en`, one `h1`, one main landmark, no missing image alt text,
+  and no console errors.
+- Live Playwright axe scans on `/`, `/demo`, `/privacy`, `/terms`, `/start`,
+  `/app`, `/app/settings/data`, and a real 404 found no serious or critical
+  violations. The repository Playwright axe integration also passed on every
+  route. The standalone axe CLI was attempted but its downloaded ChromeDriver
+  only supports Chrome 152 while the supplied Playwright Chromium is 145; the
+  Playwright axe integration is the applicable successful alternative.
+- Live Lighthouse [evidence](repair-9-evidence/live/lighthouse.json): 100
+  performance, accessibility, best practices, and SEO; LCP 1,672 ms and CLS
+  0. Local Lighthouse was 99 performance and 100 for the remaining categories.
+- The live [check](repair-9-evidence/live/live-check.json) confirms candidate
+  build SHA `522dbd0e88f1876f4dcc811be6936b7d6de2c1f5`, three running replicas,
+  reset revocation, global write limiting, desktop/mobile flow, and
+  same-origin demo requests. This product is not a package, CLI, or PWA, so
+  consumer-package and service-worker update checks do not apply.
 
-No product code was modified. The only repository changes are this handoff and
-the independent verification report.
+## Deployment record
+
+ACR built `sociobotregistry.azurecr.io/sf-booking-recovery-loop:522dbd0e88f1`
+(digest `sha256:cbe863390a91f3cf4e5bda8cf007add4517a87cc5a9d04837b72d56935339a73`).
+The release migration used the factory migration secret once; runtime uses the
+factory runtime secret. The generated 32-byte contact encryption key is stored
+only as an encrypted Container App secret reference and is never printed or
+committed. `/health` returns the repair commit SHA.
+
+## Release blockers requiring factory authority
+
+1. Register and enable the distinct variable-amount
+   `booking-recovery-loop-deposit` product through the Sociobot billing
+   registry, with the production return origin. A fresh `POST` to its approved
+   checkout endpoint still returns `404 {"error":"enabled factory product"}`.
+   The working `booking-recovery-loop` product is the $29/month practice
+   subscription and must not be substituted for client deposits.
+2. Provision the approved email/SMS relay and set its HTTPS endpoint,
+   `DELIVERY_PROVIDER_TOKEN`, and `DELIVERY_CALLBACK_SECRET` on the Container
+   App. Current live `/api/v1/integrations/status` reports
+   `delivery.configured: false`; no live recovery/reminder/fallback can be
+   claimed until a controlled booking, delivery receipt, email bounce, and SMS
+   fallback pass against that relay.
+
+These actions require factory billing and delivery-provider authority and are
+outside this repository. They are the remaining P0 reason not to release.

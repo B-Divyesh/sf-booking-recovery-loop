@@ -1,0 +1,13 @@
+HTTP/1.1 404 Not Found
+content-type: text/html; charset=utf-8
+cache-control: no-cache
+x-content-type-options: nosniff
+referrer-policy: strict-origin-when-cross-origin
+x-frame-options: DENY
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: default-src 'self'; base-uri 'self'; connect-src 'self' https://sociobotcustomers.ciamlogin.com https://api.sociobot.in; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'
+x-request-id: 9854a137-61e3-460e-b1ad-fb4b5c7abb43
+vary: accept-encoding
+content-length: 2343
+date: Sat, 29 Aug 2026 12:14:43 GMT
+

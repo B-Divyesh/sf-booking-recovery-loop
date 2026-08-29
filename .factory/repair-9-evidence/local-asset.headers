@@ -1,0 +1,15 @@
+HTTP/1.1 200 OK
+content-type: text/javascript
+accept-ranges: bytes
+last-modified: Sat, 29 Aug 2026 12:09:17 GMT
+content-length: 309083
+cache-control: public, max-age=31536000, immutable
+x-content-type-options: nosniff
+referrer-policy: strict-origin-when-cross-origin
+x-frame-options: DENY
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: default-src 'self'; base-uri 'self'; connect-src 'self' https://sociobotcustomers.ciamlogin.com https://api.sociobot.in; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'
+x-request-id: 528111a7-fc73-486b-bc52-c8e692877271
+vary: accept-encoding
+date: Sat, 29 Aug 2026 12:14:43 GMT
+
