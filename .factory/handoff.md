@@ -2,6 +2,7 @@
 
 **Work order:** `booking-recovery-loop-repair-5`
 **Base:** `c31da6c41dfea11c01aca3158b2372038a8604ab`
+**Repair commit:** `ec90392` (`fix: harden shared practice runtime`)
 **Status:** local repair verification passes. Deployment, billing registration,
 and Entra redirect registration were not performed from this repository.
 
