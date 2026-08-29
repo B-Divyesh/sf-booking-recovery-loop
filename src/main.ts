@@ -130,8 +130,8 @@ function homeContent(): string {
       <div class="plan-copy">
         <p>Recovery Loop Practice is $29 per month for one practice.</p>
         <p>Publish one session page, record email or SMS consent, and review delivery receipts.</p>
-        <p class="action-note">Set up your practice first, then buy the monthly plan through Sociobot checkout.</p>
-        <div class="button-row"><a class="button button-primary" href="/start">Set up your practice</a><a class="button button-secondary" href="https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout">Open $29 monthly checkout <span class="sr-only">(opens Sociobot checkout)</span></a></div>
+        <p class="action-note">Checkout is not available yet. You can create a workspace and test the delivery connection now.</p>
+        <div class="button-row"><a class="button button-primary" href="/start">Set up your practice</a></div>
       </div>
     </section>`;
 }

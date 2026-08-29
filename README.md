@@ -16,9 +16,8 @@ Try the isolated sample at
    permitted SMS fallback.
 6. Export or delete practice data from `/app/settings/data`.
 
-Recovery Loop Practice is $29/month for one practice. Open the official
-[Sociobot checkout](https://api.sociobot.in/api/v1/products/booking-recovery-loop/checkout)
-after setup.
+Recovery Loop Practice is $29/month for one practice. Checkout is not
+available yet.
 
 The demo has separate sample storage. It sends no real messages or payments.
 Every product promise above is listed with its executable evidence in

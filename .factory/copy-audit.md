@@ -29,8 +29,7 @@ No item contains a banned marketing word.
 | 4 | Create a practice workspace | Pass |
 | 10 | Recovery Loop Practice is $29 per month for one practice. | Pass |
 | 13 | Publish one session page, record email or SMS consent, and review delivery receipts. | Pass |
-| 13 | Set up your practice first, then buy the monthly plan through Sociobot checkout. | Pass |
-| 6 | Open $29 monthly checkout | Pass; external destination is named in the label. |
+| 15 | Checkout is not available yet. You can create a workspace and test the delivery connection now. | Pass; exact current state. |
 | 4 | Set up your practice | Pass |
 
 Read-aloud result: the first breath states the job, audience, and sample action.
