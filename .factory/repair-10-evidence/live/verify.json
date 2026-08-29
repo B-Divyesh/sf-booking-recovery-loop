@@ -1,0 +1,14 @@
+{
+  "url": "https://booking-recovery-loop.sociobot.in",
+  "loadMs": 688,
+  "errors": [],
+  "a11y": {
+    "title": "Booking Recovery Loop — recover unfinished bookings",
+    "lang": "en",
+    "h1": 1,
+    "main": true,
+    "imgsMissingAlt": 0,
+    "buttonsUnlabeled": 0,
+    "textLength": 1862
+  }
+}
