@@ -1,31 +1,50 @@
-# Review 2 handoff — Booking Recovery Loop
+# Polish 2 handoff — Booking Recovery Loop
 
-**Work order:** `booking-recovery-loop-review-2`
-**Date:** 2026-08-29 UTC
-**Result:** **FAIL**
+**Work order:** `booking-recovery-loop-polish-2`  
+**Repair commit:** `7e7194b0f1a0d4f0585e55fadf324bbe2ba903b0`
 
-## What was done
+## Delivered
 
-- Reviewed live build `7de273d65e1e9f34354d03ee9070a6a4fc4793be` cold at 390 px and desktop.
-- Exercised live demo entry, receipt, reset, storage namespace, and request log.
-- Read the brief, design, claims, demo docs, prior reviews, polish reports, verification reports, and handoffs.
-- Ran all 16 exact claim commands individually from a fresh temporary clone.
-- Ran `npm test`, `npm run build`, and `cargo test --manifest-path backend/Cargo.toml` locally.
-- Wrote `.factory/review-2.md`; product code was not modified.
+- Durable automatic abandoned-booking recovery after 15 minutes.
+- Durable session reminders after authenticated payment confirmation.
+- Consent withdrawal stops queued delivery; provider failures retry and remain visible.
+- Isolated `?demo=1` sample, persistent banner, reset, legal routes, metadata,
+  route focus, mobile layout, accessibility, and product-specific twilight rail UI.
+- Claims ledger expanded to 19 executable entries and plain-word consent wording.
+- Exact $29/month price is visible. Checkout is truthfully marked unavailable
+  because the factory billing registry currently returns 404 for this slug.
 
-## Verification summary
+## Verification
 
-Cold-read and demo gates pass. All declared claims pass. The review fails because recovery is manual rather than automatically triggered for an abandoned booking/reminder, first-run setup requires independent checkout and webhook infrastructure without the brief’s $29 plan, and README assertions remain outside the claims ledger. See `review-2.md` for exact evidence and fixes.
+From a clean clone (`/tmp/booking-recovery-clean.7Jf6LM`):
 
-## How to inspect
-
-```sh
-sed -n '1,260p' .factory/review-2.md
-npm test
-npm run build
-cargo test --manifest-path backend/Cargo.toml
+```text
+npm ci                              passed, 0 vulnerabilities
+npm test                            10 passed
+npm run build                       passed; dist/ produced
+npm run check:backend               15 Rust tests passed
+npm run test:e2e                    26 Playwright tests passed
+npm run test:deployment             passed
+npm run check:size                  JS 12,316 B gzip; CSS 21,906 B raw
 ```
 
-## Remaining work
+The claim commands in `.factory/claims.json` were executed individually from
+the repair tree; the full clean-clone browser suite includes every browser
+claim. Accessibility coverage uses axe on every public route, keyboard and
+skip-link use, 390 px reflow, 200% text reflow, focus, offline state, privacy
+request logging, and the designed HTTP 404. Local screenshots are in
+`.factory/evidence/polish-2-local/`.
 
-Implement the four findings in `.factory/review-2.md`, especially the durable consent-gated automatic recovery/reminder path, then repeat the full review from a fresh clone and fresh browser contexts.
+## Deploy and live check
+
+The container deploy was started through the factory work-order configuration
+for `booking-recovery-loop` at this commit. Append the cold live response,
+health build SHA, and screenshot evidence here after the deployment completes.
+
+## Known external boundary
+
+The Sociobot billing product registration is factory-owned and currently
+returns `404` for this slug. This repair does not present a dead checkout link.
+Register the `$29/month` product with Sociobot billing to enable checkout.
+Practices also supply their own hosted deposit and delivery connections; card
+details never enter this product.
