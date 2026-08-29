@@ -266,7 +266,7 @@ function startContent(): string {
     <form class="setup-form" data-form="create-practice">
       <fieldset><legend>Practice</legend>
         <label>Practice name<input name="name" required minlength="2" maxlength="80" autocomplete="organization" value="North Star Coaching"></label>
-        <label>Booking link<span class="field-prefix">${escapeHtml(window.location.origin)}/b/</span><input name="publicSlug" required pattern="[a-z0-9-]{3,40}" value="north-star-${Date.now().toString().slice(-6)}" aria-describedby="slug-help"></label>
+        <label>Booking link<span class="field-prefix">${escapeHtml(window.location.origin)}/b/</span><input name="publicSlug" required pattern="[a-z0-9\\-]{3,40}" value="north-star-${Date.now().toString().slice(-6)}" aria-describedby="slug-help"></label>
         <p id="slug-help" class="field-help">Use lowercase letters, numbers, and hyphens.</p>
         <label>Timezone<input name="timezone" required value="Europe/London"></label>
       </fieldset>

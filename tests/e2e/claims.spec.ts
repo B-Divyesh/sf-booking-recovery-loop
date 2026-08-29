@@ -136,6 +136,8 @@ test("@claim:sample-three-bookings opens one-click sample data", async ({ page }
 });
 
 test("@claim:practice-publish creates a private workspace and public page", async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
   const slug = `claim-practice-${Date.now()}`;
   await page.goto("/start");
   await page.getByLabel("Booking link").fill(slug);
@@ -148,6 +150,7 @@ test("@claim:practice-publish creates a private workspace and public page", asyn
   await expect(page).toHaveURL(new RegExp(`/b/${slug}$`));
   await expect(page.getByRole("heading", { name: "Finish your paid session booking" })).toBeVisible();
   await expect(page.getByText("45-minute focus session")).toBeVisible();
+  expect(consoleErrors).toEqual([]);
 });
 
 test("@claim:booking-consent-record saves consent before hosted payment", async ({ page, request }) => {
