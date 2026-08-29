@@ -210,7 +210,7 @@ pub(crate) async fn reset(
     reject_reused_key(&state.pool, &idempotency_key).await?;
 
     let envelope = seed_workspace(&state.pool, idempotency_key).await?;
-    sqlx::query("UPDATE demo_workspaces SET expires_at = 0 WHERE id = ? AND is_demo = 1")
+    sqlx::query("UPDATE demo_workspaces SET expires_at = 0 WHERE id = $1 AND is_demo = 1")
         .bind(current.id)
         .execute(&state.pool)
         .await
@@ -242,7 +242,7 @@ pub(crate) async fn recover(
     let attempt = sqlx::query_as::<_, AttemptRow>(
         "SELECT id, client_name, scheduled_for, state, reason, email_consent, \
          consent_wording, consent_recorded_at, outcome \
-         FROM booking_attempts WHERE id = ? AND workspace_id = ?",
+         FROM booking_attempts WHERE id = $1 AND workspace_id = $2",
     )
     .bind(&attempt_id)
     .bind(&workspace.id)
@@ -271,7 +271,7 @@ pub(crate) async fn recover(
         let inserted = sqlx::query(
             "INSERT INTO outbound_messages \
              (id, workspace_id, attempt_id, idempotency_key, channel, state, created_at) \
-             VALUES (?, ?, ?, ?, 'email', 'delivered', ?) ON CONFLICT DO NOTHING",
+             VALUES ($1, $2, $3, $4, 'email', 'delivered', $5) ON CONFLICT DO NOTHING",
         )
         .bind(&message_id)
         .bind(&workspace.id)
@@ -285,7 +285,7 @@ pub(crate) async fn recover(
             sqlx::query(
                 "INSERT INTO delivery_events \
                  (id, message_id, status, detail, occurred_at, simulated) \
-                 VALUES (?, ?, 'delivered', 'Sample email accepted by the in-process demo mailbox.', ?, 1)",
+                 VALUES ($1, $2, 'delivered', 'Sample email accepted by the in-process demo mailbox.', $3, 1)",
             )
             .bind(Uuid::now_v7().to_string())
             .bind(&message_id)
@@ -296,7 +296,7 @@ pub(crate) async fn recover(
         }
         sqlx::query(
             "UPDATE booking_attempts SET state = 'recovered', \
-             outcome = 'Sample follow-up delivered' WHERE id = ? AND workspace_id = ?",
+             outcome = 'Sample follow-up delivered' WHERE id = $1 AND workspace_id = $2",
         )
         .bind(&attempt_id)
         .bind(&workspace.id)
@@ -312,7 +312,7 @@ pub(crate) async fn recover(
     };
     if response_token != token {
         sqlx::query(
-            "INSERT INTO demo_token_aliases (token_hash, workspace_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            "INSERT INTO demo_token_aliases (token_hash, workspace_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
         )
         .bind(token_hash(&response_token))
         .bind(&workspace.id)
@@ -340,8 +340,8 @@ async fn seed_workspace(pool: &AnyPool, idempotency_key: String) -> Result<DemoE
         "INSERT INTO demo_workspaces \
          (id, token_hash, idempotency_key, is_demo, practice_name, practice_timezone, \
           service_name, service_duration_minutes, deposit_cents, currency, created_at, expires_at) \
-         VALUES (?, ?, ?, 1, 'North Star Coaching', 'Europe/London', \
-                 '45-minute focus session', 45, 3500, 'GBP', ?, ?)",
+         VALUES ($1, $2, $3, 1, 'North Star Coaching', 'Europe/London', \
+                 '45-minute focus session', 45, 3500, 'GBP', $4, $5)",
     )
     .bind(&workspace_id)
     .bind(&token_hash)
@@ -352,7 +352,7 @@ async fn seed_workspace(pool: &AnyPool, idempotency_key: String) -> Result<DemoE
     .await
     .map_err(|_| ApiError::internal())?;
 
-    sqlx::query("INSERT INTO demo_token_aliases (token_hash, workspace_id) VALUES (?, ?)")
+    sqlx::query("INSERT INTO demo_token_aliases (token_hash, workspace_id) VALUES ($1, $2)")
         .bind(&token_hash)
         .bind(&workspace_id)
         .execute(&mut *transaction)
@@ -399,7 +399,7 @@ async fn seed_workspace(pool: &AnyPool, idempotency_key: String) -> Result<DemoE
         sqlx::query(
             "INSERT INTO booking_attempts \
              (id, workspace_id, client_name, scheduled_for, state, reason, email_consent, \
-              consent_wording, consent_recorded_at, outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              consent_wording, consent_recorded_at, outcome) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(format!("{workspace_id}:{suffix}"))
         .bind(&workspace_id)
@@ -421,7 +421,7 @@ async fn seed_workspace(pool: &AnyPool, idempotency_key: String) -> Result<DemoE
     sqlx::query(
         "INSERT INTO outbound_messages \
          (id, workspace_id, attempt_id, idempotency_key, channel, state, created_at) \
-         VALUES (?, ?, ?, ?, 'email', 'delivered', ?)",
+         VALUES ($1, $2, $3, $4, 'email', 'delivered', $5)",
     )
     .bind(&message_id)
     .bind(&workspace_id)
@@ -434,7 +434,7 @@ async fn seed_workspace(pool: &AnyPool, idempotency_key: String) -> Result<DemoE
     sqlx::query(
         "INSERT INTO delivery_events \
          (id, message_id, status, detail, occurred_at, simulated) \
-         VALUES (?, ?, 'delivered', 'Sample confirmation reached the demo mailbox.', ?, 1)",
+         VALUES ($1, $2, 'delivered', 'Sample confirmation reached the demo mailbox.', $3, 1)",
     )
     .bind(Uuid::now_v7().to_string())
     .bind(&message_id)
@@ -452,7 +452,7 @@ async fn seed_workspace(pool: &AnyPool, idempotency_key: String) -> Result<DemoE
 
 async fn reject_reused_key(pool: &AnyPool, key: &str) -> Result<(), ApiError> {
     let exists = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM demo_workspaces WHERE idempotency_key = ?",
+        "SELECT COUNT(*) FROM demo_workspaces WHERE idempotency_key = $1",
     )
     .bind(key)
     .fetch_one(pool)
@@ -488,7 +488,7 @@ async fn workspace_from_row(
     let attempts = sqlx::query_as::<_, AttemptRow>(
         "SELECT id, client_name, scheduled_for, state, reason, email_consent, \
          consent_wording, consent_recorded_at, outcome FROM booking_attempts \
-         WHERE workspace_id = ? ORDER BY scheduled_for",
+         WHERE workspace_id = $1 ORDER BY scheduled_for",
     )
     .bind(&row.id)
     .fetch_all(pool)
@@ -500,7 +500,7 @@ async fn workspace_from_row(
         let receipt_rows = sqlx::query_as::<_, ReceiptRow>(
             "SELECT m.channel, e.status, e.detail, e.occurred_at, e.simulated FROM delivery_events e \
              JOIN outbound_messages m ON m.id = e.message_id \
-             WHERE m.attempt_id = ? ORDER BY e.occurred_at",
+             WHERE m.attempt_id = $1 ORDER BY e.occurred_at",
         )
         .bind(&attempt.id)
         .fetch_all(pool)
@@ -575,7 +575,7 @@ async fn query_workspace_row(
         "SELECT w.id, w.is_demo, w.practice_name, w.practice_timezone, w.service_name, \
          service_duration_minutes, deposit_cents, currency, expires_at \
          FROM demo_workspaces w LEFT JOIN demo_token_aliases a ON a.workspace_id = w.id \
-         WHERE w.token_hash = ? OR a.token_hash = ? LIMIT 1",
+         WHERE w.token_hash = $1 OR a.token_hash = $2 LIMIT 1",
     )
     .bind(token_hash(token))
     .bind(token_hash(token))
@@ -601,7 +601,7 @@ async fn hydrate_workspace(
     let workspace_id = seeded.workspace.id;
     let expires_at = portable.created_at + DEMO_TTL.as_secs() as i64;
     sqlx::query(
-        "UPDATE demo_workspaces SET token_hash = ?, created_at = ?, expires_at = ? WHERE id = ?",
+        "UPDATE demo_workspaces SET token_hash = $1, created_at = $2, expires_at = $3 WHERE id = $4",
     )
     .bind(&hash)
     .bind(portable.created_at)
@@ -619,7 +619,7 @@ async fn hydrate_workspace(
         sqlx::query(
             "INSERT INTO outbound_messages \
              (id, workspace_id, attempt_id, idempotency_key, channel, state, created_at) \
-             VALUES (?, ?, ?, ?, 'email', 'delivered', ?)",
+             VALUES ($1, $2, $3, $4, 'email', 'delivered', $5)",
         )
         .bind(&message_id)
         .bind(&workspace_id)
@@ -632,7 +632,7 @@ async fn hydrate_workspace(
         sqlx::query(
             "INSERT INTO delivery_events \
              (id, message_id, status, detail, occurred_at, simulated) \
-             VALUES (?, ?, 'delivered', 'Sample email accepted by the in-process demo mailbox.', ?, 1)",
+             VALUES ($1, $2, 'delivered', 'Sample email accepted by the in-process demo mailbox.', $3, 1)",
         )
         .bind(Uuid::now_v7().to_string())
         .bind(&message_id)
@@ -642,7 +642,7 @@ async fn hydrate_workspace(
         .map_err(|_| ApiError::internal())?;
         sqlx::query(
             "UPDATE booking_attempts SET state = 'recovered', \
-             outcome = 'Sample follow-up delivered' WHERE id = ? AND workspace_id = ?",
+             outcome = 'Sample follow-up delivered' WHERE id = $1 AND workspace_id = $2",
         )
         .bind(&attempt_id)
         .bind(&workspace_id)
@@ -659,7 +659,7 @@ async fn hydrate_workspace(
 
 async fn purge_expired(pool: &AnyPool) -> Result<(), ApiError> {
     sqlx::query(
-        "DELETE FROM demo_workspaces WHERE is_demo = 1 AND expires_at <= ? AND created_at <= ?",
+        "DELETE FROM demo_workspaces WHERE is_demo = 1 AND expires_at <= $1 AND created_at <= $2",
     )
     .bind(Utc::now().timestamp())
     .bind(Utc::now().timestamp() - DEMO_TTL.as_secs() as i64)
@@ -919,7 +919,7 @@ mod tests {
             "INSERT INTO demo_workspaces \
              (id, token_hash, idempotency_key, is_demo, practice_name, practice_timezone, \
               service_name, service_duration_minutes, deposit_cents, currency, created_at, expires_at) \
-             VALUES ('real-practice', ?, 'real-key', 0, 'Private Practice', 'UTC', 'Private service', 60, 1000, 'GBP', 0, 4102444800)",
+             VALUES ('real-practice', $1, 'real-key', 0, 'Private Practice', 'UTC', 'Private service', 60, 1000, 'GBP', 0, 4102444800)",
         )
         .bind(super::token_hash(raw_token))
         .execute(&pool)
@@ -970,7 +970,7 @@ mod tests {
         )
         .await;
         let token = created["workspaceToken"].as_str().expect("token");
-        sqlx::query("UPDATE demo_workspaces SET expires_at = 0 WHERE token_hash = ?")
+        sqlx::query("UPDATE demo_workspaces SET expires_at = 0 WHERE token_hash = $1")
             .bind(super::token_hash(token))
             .execute(&pool)
             .await

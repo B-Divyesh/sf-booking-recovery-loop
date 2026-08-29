@@ -197,7 +197,7 @@ pub(crate) async fn create(
     sqlx::query(
         "INSERT INTO practices (id, owner_oid, access_token_hash, receipt_token_hash, public_slug, name, timezone, \
          service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url, created_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
     )
     .bind(&id)
     .bind(&owner_oid)
@@ -222,7 +222,7 @@ pub(crate) async fn create(
             ApiError::internal()
         }
     })?;
-    sqlx::query("INSERT INTO practice_entitlements (practice_id, provider, state, verified_at) VALUES (?, 'sociobot_dodo', 'unknown', ?)")
+    sqlx::query("INSERT INTO practice_entitlements (practice_id, provider, state, verified_at) VALUES ($1, 'sociobot_dodo', 'unknown', $2)")
         .bind(&id)
         .bind(Utc::now().timestamp())
         .execute(&state.pool)
@@ -290,7 +290,7 @@ pub(crate) async fn create_attempt(
     sqlx::query(
         "INSERT INTO practice_attempts (id, practice_id, client_name_encrypted, email_encrypted, phone_encrypted, \
          scheduled_for, state, email_consent, sms_consent, consent_wording, consent_recorded_at, created_at) \
-         VALUES (?, ?, ?, ?, ?, ?, 'awaiting_deposit', ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, 'awaiting_deposit', $7, $8, $9, $10, $11)",
     )
     .bind(&id)
     .bind(&practice.id)
@@ -308,7 +308,7 @@ pub(crate) async fn create_attempt(
     .map_err(|error| if error.to_string().contains("UNIQUE") { ApiError::conflict("slot_unavailable", "That time was just booked. Choose another future time.") } else { ApiError::internal() })?;
     // The recovery deadline is durable. A restart cannot silently turn an
     // abandoned booking back into a manual checklist item.
-    sqlx::query("INSERT INTO practice_scheduled_jobs (id, practice_id, attempt_id, kind, due_at, created_at) VALUES (?, ?, ?, 'abandoned_recovery', ?, ?)")
+    sqlx::query("INSERT INTO practice_scheduled_jobs (id, practice_id, attempt_id, kind, due_at, created_at) VALUES ($1, $2, $3, 'abandoned_recovery', $4, $5)")
         .bind(Uuid::now_v7().to_string()).bind(&practice.id).bind(&id)
         .bind(now + 15 * 60).bind(now).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
     Ok((
@@ -331,7 +331,7 @@ pub(crate) async fn recover(
     let attempt: AttemptRow = sqlx::query_as(
         "SELECT id, client_name_encrypted, email_encrypted, phone_encrypted, scheduled_for, state, \
          email_consent, sms_consent, consent_wording, consent_recorded_at FROM practice_attempts \
-         WHERE id = ? AND practice_id = ?",
+         WHERE id = $1 AND practice_id = $2",
     )
     .bind(&attempt_id)
     .bind(&practice.id)
@@ -394,7 +394,7 @@ pub(crate) async fn run_due_jobs(state: &AppState, now: i64) -> Result<(), ApiEr
     let jobs: Vec<(String, String, String, String)> = sqlx::query_as(
         "SELECT j.id, j.attempt_id, j.kind, j.practice_id FROM practice_scheduled_jobs j \
          JOIN practices p ON p.id = j.practice_id WHERE j.status IN ('queued', 'failed') \
-         AND j.due_at <= ? AND p.deletion_requested_at IS NULL ORDER BY j.due_at LIMIT 32",
+         AND j.due_at <= $1 AND p.deletion_requested_at IS NULL ORDER BY j.due_at LIMIT 32",
     )
     .bind(now)
     .fetch_all(&state.pool)
@@ -402,7 +402,7 @@ pub(crate) async fn run_due_jobs(state: &AppState, now: i64) -> Result<(), ApiEr
     .map_err(|_| ApiError::internal())?;
 
     for (job_id, attempt_id, kind, practice_id) in jobs {
-        let claimed = sqlx::query("UPDATE practice_scheduled_jobs SET status = 'processing', attempts = attempts + 1, last_error = NULL WHERE id = ? AND status IN ('queued', 'failed')")
+        let claimed = sqlx::query("UPDATE practice_scheduled_jobs SET status = 'processing', attempts = attempts + 1, last_error = NULL WHERE id = $1 AND status IN ('queued', 'failed')")
             .bind(&job_id).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
         if claimed.rows_affected() != 1 {
             continue;
@@ -410,17 +410,17 @@ pub(crate) async fn run_due_jobs(state: &AppState, now: i64) -> Result<(), ApiEr
         let result = deliver_scheduled_job(state, &practice_id, &attempt_id, &kind).await;
         match result {
             Ok(()) => {
-                sqlx::query("UPDATE practice_scheduled_jobs SET status = 'sent', completed_at = ? WHERE id = ?")
+                sqlx::query("UPDATE practice_scheduled_jobs SET status = 'sent', completed_at = $1 WHERE id = $2")
                     .bind(now).bind(&job_id).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
             }
             Err(error) if error.code == "consent_required" => {
-                sqlx::query("UPDATE practice_scheduled_jobs SET status = 'stopped', completed_at = ?, last_error = ? WHERE id = ?")
+                sqlx::query("UPDATE practice_scheduled_jobs SET status = 'stopped', completed_at = $1, last_error = $2 WHERE id = $3")
                     .bind(now).bind(error.message).bind(&job_id).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
             }
             Err(error) => {
                 // A failed provider call is retried in five minutes. The
                 // error remains visible to the owner instead of disappearing.
-                sqlx::query("UPDATE practice_scheduled_jobs SET status = 'failed', due_at = ?, last_error = ? WHERE id = ?")
+                sqlx::query("UPDATE practice_scheduled_jobs SET status = 'failed', due_at = $1, last_error = $2 WHERE id = $3")
                     .bind(now + 5 * 60).bind(error.message).bind(&job_id).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
             }
         }
@@ -434,9 +434,9 @@ async fn deliver_scheduled_job(
     attempt_id: &str,
     kind: &str,
 ) -> Result<(), ApiError> {
-    let practice: PracticeRow = sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url FROM practices WHERE id = ? AND deletion_requested_at IS NULL")
+    let practice: PracticeRow = sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url FROM practices WHERE id = $1 AND deletion_requested_at IS NULL")
         .bind(practice_id).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?.ok_or_else(ApiError::not_found)?;
-    let attempt: AttemptRow = sqlx::query_as("SELECT id, client_name_encrypted, email_encrypted, phone_encrypted, scheduled_for, state, email_consent, sms_consent, consent_wording, consent_recorded_at FROM practice_attempts WHERE id = ? AND practice_id = ?")
+    let attempt: AttemptRow = sqlx::query_as("SELECT id, client_name_encrypted, email_encrypted, phone_encrypted, scheduled_for, state, email_consent, sms_consent, consent_wording, consent_recorded_at FROM practice_attempts WHERE id = $1 AND practice_id = $2")
         .bind(attempt_id).bind(practice_id).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?.ok_or_else(ApiError::not_found)?;
     if kind == "abandoned_recovery" && attempt.state != "awaiting_deposit" {
         return Ok(());
@@ -489,12 +489,12 @@ async fn deliver_attempt(
         ));
     }
     let event_id = Uuid::now_v7().to_string();
-    sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES (?, ?, ?, ?, 'accepted', ?, ?, ?) ON CONFLICT DO NOTHING")
+    sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES ($1, $2, $3, $4, 'accepted', $5, $6, $7) ON CONFLICT DO NOTHING")
         .bind(Uuid::now_v7().to_string()).bind(&practice.id).bind(&attempt.id).bind(channel)
         .bind(format!("Delivery service accepted the {purpose}.")).bind(&event_id).bind(Utc::now().timestamp())
         .execute(&state.pool).await.map_err(|_| ApiError::internal())?;
     sqlx::query(
-        "UPDATE practice_attempts SET state = 'recovery_due' WHERE id = ? AND practice_id = ?",
+        "UPDATE practice_attempts SET state = 'recovery_due' WHERE id = $1 AND practice_id = $2",
     )
     .bind(&attempt.id)
     .bind(&practice.id)
@@ -527,7 +527,7 @@ pub(crate) async fn receipt(
         .get("x-receipt-token")
         .and_then(|v| v.to_str().ok())
         .ok_or_else(ApiError::unauthorized)?;
-    let valid: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM practices WHERE id = ? AND receipt_token_hash = ? AND deletion_requested_at IS NULL")
+    let valid: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM practices WHERE id = $1 AND receipt_token_hash = $2 AND deletion_requested_at IS NULL")
         .bind(&practice_id).bind(hash(token)).fetch_one(&state.pool).await.map_err(|_| ApiError::internal())?;
     if valid != 1 {
         return Err(ApiError::unauthorized());
@@ -551,12 +551,12 @@ pub(crate) async fn receipt(
         .map_err(|_| ApiError::bad_request("invalid_time", "Use an RFC 3339 receipt time."))?
         .map(|v| v.timestamp())
         .unwrap_or_else(|| Utc::now().timestamp());
-    let inserted = sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) SELECT ?, ?, id, ?, ?, ?, ?, ? FROM practice_attempts WHERE id = ? AND practice_id = ? ON CONFLICT DO NOTHING")
+    let inserted = sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) SELECT $1, $2, id, $3, $4, $5, $6, $7 FROM practice_attempts WHERE id = $8 AND practice_id = $9 ON CONFLICT DO NOTHING")
         .bind(Uuid::now_v7().to_string()).bind(&practice_id).bind(&input.channel).bind(&input.status).bind(clean_detail(&input.detail)).bind(&input.provider_event_id).bind(occurred).bind(&input.attempt_id).bind(&practice_id)
         .execute(&state.pool).await.map_err(|_| ApiError::internal())?;
     if inserted.rows_affected() == 0 {
         let exists: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM practice_delivery_events WHERE provider_event_id = ?",
+            "SELECT COUNT(*) FROM practice_delivery_events WHERE provider_event_id = $1",
         )
         .bind(&input.provider_event_id)
         .fetch_one(&state.pool)
@@ -568,7 +568,7 @@ pub(crate) async fn receipt(
     }
     if input.status == "delivered" {
         sqlx::query(
-            "UPDATE practice_attempts SET state = 'recovered' WHERE id = ? AND practice_id = ?",
+            "UPDATE practice_attempts SET state = 'recovered' WHERE id = $1 AND practice_id = $2",
         )
         .bind(&input.attempt_id)
         .bind(&practice_id)
@@ -579,7 +579,7 @@ pub(crate) async fn receipt(
     if inserted.rows_affected() > 0 && input.status == "bounced" && input.channel == "email" {
         let fallback: Option<(String, String, String)> = sqlx::query_as(
             "SELECT a.phone_encrypted, p.delivery_webhook_url, p.name FROM practice_attempts a \
-             JOIN practices p ON p.id = a.practice_id WHERE a.id = ? AND a.practice_id = ? \
+             JOIN practices p ON p.id = a.practice_id WHERE a.id = $1 AND a.practice_id = $2 \
              AND a.sms_consent = 1 AND a.phone_encrypted IS NOT NULL AND p.delivery_webhook_url <> ''",
         ).bind(&input.attempt_id).bind(&practice_id).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?;
         if let Some((phone, webhook, practice_name)) = fallback {
@@ -594,7 +594,7 @@ pub(crate) async fn receipt(
                 .send()
                 .await;
             if response.is_ok_and(|value| value.status().is_success()) {
-                sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES (?, ?, ?, 'sms', 'accepted', 'Email bounced; the permitted SMS fallback was accepted.', ?, ?) ON CONFLICT DO NOTHING")
+                sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES ($1, $2, $3, 'sms', 'accepted', 'Email bounced; the permitted SMS fallback was accepted.', $4, $5) ON CONFLICT DO NOTHING")
                     .bind(Uuid::now_v7().to_string()).bind(&practice_id).bind(&input.attempt_id).bind(format!("fallback:{}", input.provider_event_id)).bind(Utc::now().timestamp())
                     .execute(&state.pool).await.map_err(|_| ApiError::internal())?;
             }
@@ -615,7 +615,7 @@ pub(crate) async fn payment(
         .get("x-receipt-token")
         .and_then(|v| v.to_str().ok())
         .ok_or_else(ApiError::unauthorized)?;
-    let valid: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM practices WHERE id = ? AND receipt_token_hash = ? AND deletion_requested_at IS NULL")
+    let valid: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM practices WHERE id = $1 AND receipt_token_hash = $2 AND deletion_requested_at IS NULL")
         .bind(&practice_id).bind(hash(token)).fetch_one(&state.pool).await.map_err(|_| ApiError::internal())?;
     if valid != 1 {
         return Err(ApiError::unauthorized());
@@ -626,11 +626,11 @@ pub(crate) async fn payment(
             "Only a verified paid event can confirm the deposit.",
         ));
     }
-    let result = sqlx::query("UPDATE practice_attempts SET state = 'paid', payment_reference = ? WHERE id = ? AND practice_id = ? AND payment_reference IS NULL")
+    let result = sqlx::query("UPDATE practice_attempts SET state = 'paid', payment_reference = $1 WHERE id = $2 AND practice_id = $3 AND payment_reference IS NULL")
         .bind(clean_detail(&input.provider_event_id)).bind(&input.attempt_id).bind(&practice_id).execute(&state.pool).await.map_err(|_| ApiError::internal())?;
     if result.rows_affected() == 0 {
         let existing: Option<String> = sqlx::query_scalar(
-            "SELECT payment_reference FROM practice_attempts WHERE id = ? AND practice_id = ?",
+            "SELECT payment_reference FROM practice_attempts WHERE id = $1 AND practice_id = $2",
         )
         .bind(&input.attempt_id)
         .bind(&practice_id)
@@ -649,7 +649,7 @@ pub(crate) async fn payment(
         };
     }
     let scheduled_for: i64 = sqlx::query_scalar(
-        "SELECT scheduled_for FROM practice_attempts WHERE id = ? AND practice_id = ?",
+        "SELECT scheduled_for FROM practice_attempts WHERE id = $1 AND practice_id = $2",
     )
     .bind(&input.attempt_id)
     .bind(&practice_id)
@@ -657,7 +657,7 @@ pub(crate) async fn payment(
     .await
     .map_err(|_| ApiError::internal())?;
     let now = Utc::now().timestamp();
-    sqlx::query("INSERT INTO practice_scheduled_jobs (id, practice_id, attempt_id, kind, due_at, created_at) VALUES (?, ?, ?, 'session_reminder', ?, ?) ON CONFLICT DO NOTHING")
+    sqlx::query("INSERT INTO practice_scheduled_jobs (id, practice_id, attempt_id, kind, due_at, created_at) VALUES ($1, $2, $3, 'session_reminder', $4, $5) ON CONFLICT DO NOTHING")
         .bind(Uuid::now_v7().to_string()).bind(&practice_id).bind(&input.attempt_id)
         .bind((scheduled_for - 24 * 60 * 60).max(now)).bind(now)
         .execute(&state.pool).await.map_err(|_| ApiError::internal())?;
@@ -690,7 +690,7 @@ pub(crate) async fn delete(
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let owner_oid = owner_oid(&state, &headers).await?;
-    let result = sqlx::query("DELETE FROM practices WHERE owner_oid = ?")
+    let result = sqlx::query("DELETE FROM practices WHERE owner_oid = $1")
         .bind(owner_oid)
         .execute(&state.pool)
         .await
@@ -703,11 +703,11 @@ pub(crate) async fn delete(
 
 async fn load_practice(state: &AppState, owner_oid: &str) -> Result<PracticeView, ApiError> {
     let row = practice_row_by_owner(state, owner_oid).await?;
-    let attempts: Vec<AttemptRow> = sqlx::query_as("SELECT id, client_name_encrypted, email_encrypted, phone_encrypted, scheduled_for, state, email_consent, sms_consent, consent_wording, consent_recorded_at FROM practice_attempts WHERE practice_id = ? ORDER BY created_at DESC")
+    let attempts: Vec<AttemptRow> = sqlx::query_as("SELECT id, client_name_encrypted, email_encrypted, phone_encrypted, scheduled_for, state, email_consent, sms_consent, consent_wording, consent_recorded_at FROM practice_attempts WHERE practice_id = $1 ORDER BY created_at DESC")
         .bind(&row.id).fetch_all(&state.pool).await.map_err(|_| ApiError::internal())?;
     let mut views = Vec::with_capacity(attempts.len());
     for attempt in attempts {
-        let event_rows = sqlx::query_as::<_, EventRow>("SELECT channel, status, detail, occurred_at FROM practice_delivery_events WHERE attempt_id = ? ORDER BY occurred_at")
+        let event_rows = sqlx::query_as::<_, EventRow>("SELECT channel, status, detail, occurred_at FROM practice_delivery_events WHERE attempt_id = $1 ORDER BY occurred_at")
             .bind(&attempt.id).fetch_all(&state.pool).await.map_err(|_| ApiError::internal())?;
         let events = event_rows
             .into_iter()
@@ -718,7 +718,7 @@ async fn load_practice(state: &AppState, owner_oid: &str) -> Result<PracticeView
                 occurred_at: timestamp(event.occurred_at),
             })
             .collect();
-        let job_rows = sqlx::query_as::<_, ScheduledJobRow>("SELECT kind, due_at, status, last_error FROM practice_scheduled_jobs WHERE attempt_id = ? ORDER BY due_at")
+        let job_rows = sqlx::query_as::<_, ScheduledJobRow>("SELECT kind, due_at, status, last_error FROM practice_scheduled_jobs WHERE attempt_id = $1 ORDER BY due_at")
             .bind(&attempt.id).fetch_all(&state.pool).await.map_err(|_| ApiError::internal())?;
         let scheduled_jobs = job_rows
             .into_iter()
@@ -760,12 +760,12 @@ async fn load_practice(state: &AppState, owner_oid: &str) -> Result<PracticeView
 }
 
 async fn practice_row_by_owner(state: &AppState, owner_oid: &str) -> Result<PracticeRow, ApiError> {
-    sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url FROM practices WHERE owner_oid = ? AND deletion_requested_at IS NULL")
+    sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url FROM practices WHERE owner_oid = $1 AND deletion_requested_at IS NULL")
         .bind(owner_oid).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?.ok_or_else(ApiError::unauthorized)
 }
 
 async fn public_practice(state: &AppState, slug: &str) -> Result<PracticeRow, ApiError> {
-    sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url FROM practices WHERE public_slug = ? AND deletion_requested_at IS NULL")
+    sqlx::query_as("SELECT id, public_slug, name, timezone, service_name, duration_minutes, deposit_cents, currency, payment_url, delivery_webhook_url FROM practices WHERE public_slug = $1 AND deletion_requested_at IS NULL")
         .bind(slug).fetch_optional(&state.pool).await.map_err(|_| ApiError::internal())?.ok_or_else(ApiError::not_found)
 }
 
@@ -1141,7 +1141,7 @@ mod tests {
         let (app, pool) = test_app().await;
         let owner = create_owner(&app, "automatic-test").await;
         let practice_id = owner["practice"]["id"].as_str().unwrap();
-        sqlx::query("UPDATE practices SET delivery_webhook_url = ? WHERE id = ?")
+        sqlx::query("UPDATE practices SET delivery_webhook_url = $1 WHERE id = $2")
             .bind(format!("http://{address}/send"))
             .bind(practice_id)
             .execute(&pool)
@@ -1153,7 +1153,7 @@ mod tests {
         assert_eq!(stopped_status, StatusCode::CREATED, "{stopped}");
         // A later consent withdrawal must stop an already queued delivery.
         sqlx::query(
-            "UPDATE practice_attempts SET email_consent = 0, email_encrypted = NULL WHERE id = ?",
+            "UPDATE practice_attempts SET email_consent = 0, email_encrypted = NULL WHERE id = $1",
         )
         .bind(stopped["attemptId"].as_str().unwrap())
         .execute(&pool)
@@ -1172,13 +1172,13 @@ mod tests {
             "a due job is claimed once across retries"
         );
         let sent: String =
-            sqlx::query_scalar("SELECT status FROM practice_scheduled_jobs WHERE attempt_id = ?")
+            sqlx::query_scalar("SELECT status FROM practice_scheduled_jobs WHERE attempt_id = $1")
                 .bind(consented["attemptId"].as_str().unwrap())
                 .fetch_one(&pool)
                 .await
                 .unwrap();
         let stopped_status: String =
-            sqlx::query_scalar("SELECT status FROM practice_scheduled_jobs WHERE attempt_id = ?")
+            sqlx::query_scalar("SELECT status FROM practice_scheduled_jobs WHERE attempt_id = $1")
                 .bind(stopped["attemptId"].as_str().unwrap())
                 .fetch_one(&pool)
                 .await
@@ -1205,7 +1205,7 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::CREATED, "{attempt}");
         let due_at: i64 = sqlx::query_scalar(
-            "SELECT due_at FROM practice_scheduled_jobs WHERE attempt_id = ? AND kind = 'abandoned_recovery'",
+            "SELECT due_at FROM practice_scheduled_jobs WHERE attempt_id = $1 AND kind = 'abandoned_recovery'",
         )
         .bind(attempt["attemptId"].as_str().unwrap())
         .fetch_one(&pool)
@@ -1244,7 +1244,7 @@ mod tests {
         let (app, pool) = test_app().await;
         let owner = create_owner(&app, "delivery-check-test").await;
         let token = owner["accessToken"].as_str().unwrap();
-        sqlx::query("UPDATE practices SET delivery_webhook_url = ? WHERE id = ?")
+        sqlx::query("UPDATE practices SET delivery_webhook_url = $1 WHERE id = $2")
             .bind(format!("http://{address}/send"))
             .bind(owner["practice"]["id"].as_str().unwrap())
             .execute(&pool)
@@ -1292,7 +1292,7 @@ mod tests {
         )
         .await;
         let attempt_id = attempt["attemptId"].as_str().unwrap();
-        sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES (?, ?, ?, 'email', 'accepted', 'Accepted for delivery', ?, ?)")
+        sqlx::query("INSERT INTO practice_delivery_events (id, practice_id, attempt_id, channel, status, detail, provider_event_id, occurred_at) VALUES ($1, $2, $3, 'email', 'accepted', 'Accepted for delivery', $4, $5)")
             .bind(Uuid::now_v7().to_string()).bind(owner["practice"]["id"].as_str().unwrap()).bind(attempt_id).bind(Uuid::now_v7().to_string()).bind(Utc::now().timestamp()).execute(&pool).await.unwrap();
         let (status, exported) = send(
             &app,
@@ -1424,7 +1424,7 @@ mod tests {
         let token = owner["accessToken"].as_str().unwrap();
         let receipt_token = owner["receiptToken"].as_str().unwrap();
         let practice_id = owner["practice"]["id"].as_str().unwrap();
-        sqlx::query("UPDATE practices SET delivery_webhook_url = ? WHERE id = ?")
+        sqlx::query("UPDATE practices SET delivery_webhook_url = $1 WHERE id = $2")
             .bind(format!("http://{address}/send"))
             .bind(practice_id)
             .execute(&pool)
@@ -1477,7 +1477,7 @@ mod tests {
             "one email and one SMS fallback only"
         );
         let event_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM practice_delivery_events WHERE attempt_id = ?",
+            "SELECT COUNT(*) FROM practice_delivery_events WHERE attempt_id = $1",
         )
         .bind(attempt_id)
         .fetch_one(&pool)
@@ -1550,7 +1550,7 @@ mod tests {
         )
         .await;
         assert_eq!(practice["attempts"][0]["state"], "paid");
-        let reminders: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM practice_scheduled_jobs WHERE attempt_id = ? AND kind = 'session_reminder' AND status = 'queued'")
+        let reminders: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM practice_scheduled_jobs WHERE attempt_id = $1 AND kind = 'session_reminder' AND status = 'queued'")
             .bind(attempt_id).fetch_one(&pool).await.unwrap();
         assert_eq!(
             reminders, 1,
@@ -1585,7 +1585,7 @@ mod tests {
         let owner = create_owner(&app, "reminder-test").await;
         let receipt_token = owner["receiptToken"].as_str().unwrap();
         let practice_id = owner["practice"]["id"].as_str().unwrap();
-        sqlx::query("UPDATE practices SET delivery_webhook_url = ? WHERE id = ?")
+        sqlx::query("UPDATE practices SET delivery_webhook_url = $1 WHERE id = $2")
             .bind(format!("http://{address}/send"))
             .bind(practice_id)
             .execute(&pool)
@@ -1626,7 +1626,7 @@ mod tests {
             assert_eq!(value["duplicate"], duplicate);
         }
 
-        sqlx::query("UPDATE practice_scheduled_jobs SET due_at = 1 WHERE attempt_id = ? AND kind = 'session_reminder'")
+        sqlx::query("UPDATE practice_scheduled_jobs SET due_at = 1 WHERE attempt_id = $1 AND kind = 'session_reminder'")
             .bind(attempt_id)
             .execute(&pool)
             .await
@@ -1639,13 +1639,13 @@ mod tests {
             1,
             "the due reminder reaches the delivery provider once"
         );
-        let status: String = sqlx::query_scalar("SELECT status FROM practice_scheduled_jobs WHERE attempt_id = ? AND kind = 'session_reminder'")
+        let status: String = sqlx::query_scalar("SELECT status FROM practice_scheduled_jobs WHERE attempt_id = $1 AND kind = 'session_reminder'")
             .bind(attempt_id)
             .fetch_one(&pool)
             .await
             .unwrap();
         assert_eq!(status, "sent");
-        let detail: String = sqlx::query_scalar("SELECT detail FROM practice_delivery_events WHERE attempt_id = ? ORDER BY occurred_at DESC LIMIT 1")
+        let detail: String = sqlx::query_scalar("SELECT detail FROM practice_delivery_events WHERE attempt_id = $1 ORDER BY occurred_at DESC LIMIT 1")
             .bind(attempt_id)
             .fetch_one(&pool)
             .await
