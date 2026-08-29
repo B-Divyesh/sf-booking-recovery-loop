@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use axum::{
     extract::{Path, State},
@@ -84,13 +84,21 @@ struct Receipt {
 }
 
 #[derive(Debug, FromRow)]
-struct ReceiptRow {
-    attempt_id: String,
-    channel: String,
-    status: String,
-    detail: String,
-    occurred_at: i64,
-    simulated: i64,
+struct AttemptReceiptRow {
+    id: String,
+    client_name: String,
+    scheduled_for: i64,
+    state: String,
+    reason: String,
+    email_consent: i64,
+    consent_wording: Option<String>,
+    consent_recorded_at: Option<i64>,
+    outcome: Option<String>,
+    receipt_channel: Option<String>,
+    receipt_status: Option<String>,
+    receipt_detail: Option<String>,
+    receipt_occurred_at: Option<i64>,
+    receipt_simulated: Option<i64>,
 }
 
 #[derive(Debug, FromRow)]
@@ -107,16 +115,9 @@ struct WorkspaceRow {
 }
 
 #[derive(Debug, FromRow)]
-struct AttemptRow {
-    id: String,
-    client_name: String,
-    scheduled_for: i64,
+struct RecoveryAttemptRow {
     state: String,
-    reason: String,
     email_consent: i64,
-    consent_wording: Option<String>,
-    consent_recorded_at: Option<i64>,
-    outcome: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -235,9 +236,8 @@ pub(crate) async fn recover(
     }
     let attempt_id = format!("{}:{attempt_suffix}", workspace.id);
 
-    let attempt = sqlx::query_as::<_, AttemptRow>(
-        "SELECT id, client_name, scheduled_for, state, reason, email_consent, \
-         consent_wording, consent_recorded_at, outcome \
+    let attempt = sqlx::query_as::<_, RecoveryAttemptRow>(
+        "SELECT state, email_consent \
          FROM booking_attempts WHERE id = $1 AND workspace_id = $2",
     )
     .bind(&attempt_id)
@@ -535,60 +535,66 @@ async fn workspace_from_row(
     token: &str,
     row: WorkspaceRow,
 ) -> Result<DemoEnvelope, ApiError> {
-    let attempts = sqlx::query_as::<_, AttemptRow>(
-        "SELECT id, client_name, scheduled_for, state, reason, email_consent, \
-         consent_wording, consent_recorded_at, outcome FROM booking_attempts \
-         WHERE workspace_id = $1 ORDER BY scheduled_for",
+    // Join receipts into the attempt read. A live 40-request allowance runs
+    // against the shared PostgreSQL pool, so one workspace-scoped read is
+    // materially safer than the former one query per attempt plus a receipt
+    // lookup. The left joins retain attempts without a receipt.
+    let attempts = sqlx::query_as::<_, AttemptReceiptRow>(
+        "SELECT a.id, a.client_name, a.scheduled_for, a.state, a.reason, a.email_consent, \
+         a.consent_wording, a.consent_recorded_at, a.outcome, \
+         m.channel AS receipt_channel, e.status AS receipt_status, e.detail AS receipt_detail, \
+         e.occurred_at AS receipt_occurred_at, e.simulated AS receipt_simulated \
+         FROM booking_attempts a \
+         LEFT JOIN outbound_messages m ON m.attempt_id = a.id \
+         LEFT JOIN delivery_events e ON e.message_id = m.id \
+         WHERE a.workspace_id = $1 ORDER BY a.scheduled_for, e.occurred_at",
     )
     .bind(&row.id)
     .fetch_all(pool)
     .await
     .map_err(|_| ApiError::internal())?;
-
-    // Read-only demo views do not take the per-process mutation lock. A reset
-    // revokes the old row in the shared store, and this one workspace-scoped
-    // lookup keeps concurrent replica reads quick enough to avoid exhausting
-    // the shared PgBouncer session budget.
-    let receipt_rows = sqlx::query_as::<_, ReceiptRow>(
-        "SELECT m.attempt_id, m.channel, e.status, e.detail, e.occurred_at, e.simulated \
-         FROM delivery_events e JOIN outbound_messages m ON m.id = e.message_id \
-         WHERE m.workspace_id = $1 ORDER BY e.occurred_at",
-    )
-    .bind(&row.id)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::internal())?;
-    let mut receipts_by_attempt = HashMap::<String, Vec<Receipt>>::new();
-    for receipt in receipt_rows {
-        receipts_by_attempt
-            .entry(receipt.attempt_id)
-            .or_default()
-            .push(Receipt {
-                channel: receipt.channel,
-                status: receipt.status,
-                detail: receipt.detail,
-                occurred_at: timestamp(receipt.occurred_at),
-                simulated: receipt.simulated == 1,
-            });
-    }
 
     let mut response_attempts = Vec::with_capacity(attempts.len());
     for attempt in attempts {
-        let receipts = receipts_by_attempt.remove(&attempt.id).unwrap_or_default();
-        response_attempts.push(Attempt {
-            id: attempt.id,
-            client_name: attempt.client_name,
-            scheduled_for: timestamp(attempt.scheduled_for),
-            state: attempt.state,
-            reason: attempt.reason,
-            consent: Consent {
-                email: attempt.email_consent == 1,
-                wording: attempt.consent_wording,
-                recorded_at: attempt.consent_recorded_at.map(timestamp),
-            },
-            outcome: attempt.outcome,
-            receipts,
-        });
+        let is_new_attempt = response_attempts
+            .last()
+            .map(|current: &Attempt| current.id != attempt.id)
+            .unwrap_or(true);
+        if is_new_attempt {
+            response_attempts.push(Attempt {
+                id: attempt.id,
+                client_name: attempt.client_name,
+                scheduled_for: timestamp(attempt.scheduled_for),
+                state: attempt.state,
+                reason: attempt.reason,
+                consent: Consent {
+                    email: attempt.email_consent == 1,
+                    wording: attempt.consent_wording,
+                    recorded_at: attempt.consent_recorded_at.map(timestamp),
+                },
+                outcome: attempt.outcome,
+                receipts: Vec::new(),
+            });
+        }
+        if let (Some(channel), Some(status), Some(detail), Some(occurred_at), Some(simulated)) = (
+            attempt.receipt_channel,
+            attempt.receipt_status,
+            attempt.receipt_detail,
+            attempt.receipt_occurred_at,
+            attempt.receipt_simulated,
+        ) {
+            response_attempts
+                .last_mut()
+                .expect("the joined receipt must follow an attempt")
+                .receipts
+                .push(Receipt {
+                    channel,
+                    status,
+                    detail,
+                    occurred_at: timestamp(occurred_at),
+                    simulated: simulated == 1,
+                });
+        }
     }
 
     Ok(DemoEnvelope {
