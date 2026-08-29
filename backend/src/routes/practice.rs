@@ -1444,6 +1444,7 @@ mod tests {
             build_sha: Arc::from("test"),
             pool,
             demo_lock: Arc::new(Mutex::new(())),
+            rate_windows: Arc::new(Mutex::new(std::collections::HashMap::new())),
             encryption_key: Arc::new([7_u8; 32]),
             http: reqwest::Client::new(),
             entra: crate::auth::EntraValidator::from_environment(reqwest::Client::new()),

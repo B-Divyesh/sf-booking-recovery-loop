@@ -2,7 +2,7 @@ mod auth;
 mod migrations;
 mod routes;
 
-use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{
     extract::{Request, State},
@@ -34,6 +34,14 @@ const WRITE_BURST: u32 = 12;
 const WRITE_REPLENISH_SECONDS: u64 = 60;
 const SHARED_API_REQUESTS_PER_SECOND: i32 = 40;
 const SHARED_WRITE_REQUESTS_PER_MINUTE: i32 = 12;
+const READ_RATE_RESERVATION: i32 = 4;
+
+#[derive(Clone, Copy)]
+pub(crate) struct LocalRateWindow {
+    window_start: i64,
+    remaining: i32,
+    exhausted: bool,
+}
 
 fn database_pool_max_connections(database_url: &str) -> u32 {
     // The factory's shared PgBouncer session pool has a 15-client ceiling
@@ -59,6 +67,7 @@ pub(crate) struct AppState {
     pub(crate) build_sha: Arc<str>,
     pub(crate) pool: AnyPool,
     pub(crate) demo_lock: Arc<Mutex<()>>,
+    pub(crate) rate_windows: Arc<Mutex<HashMap<String, LocalRateWindow>>>,
     pub(crate) encryption_key: Arc<[u8; 32]>,
     pub(crate) http: reqwest::Client,
     pub(crate) entra: auth::EntraValidator,
@@ -148,6 +157,7 @@ pub(crate) fn app_router_with_integrations(
         build_sha: build_sha.into(),
         pool,
         demo_lock: Arc::new(Mutex::new(())),
+        rate_windows: Arc::new(Mutex::new(HashMap::new())),
         encryption_key: Arc::new(encryption_key),
         entra: auth::EntraValidator::from_environment(http.clone()),
         integrations: Arc::new(integrations),
@@ -359,30 +369,53 @@ async fn shared_api_rate_limit(
             "1".to_owned(),
         )
     };
-    // PostgreSQL stores this column as INTEGER (i32), while SQLite's dynamic
-    // integer type had masked the wrong i64 decoder in local-only testing.
-    let hits = sqlx::query_scalar::<_, i32>(
-        // `$1` parameters work with both PostgreSQL and SQLite. `AnyPool`
-        // selects a driver but does not rewrite `?` placeholders for
-        // PostgreSQL; keeping the portable spelling here prevents a deployed
-        // limiter from failing closed with a syntax error.
-        "INSERT INTO api_rate_windows (client_key, window_start, hits) VALUES ($1, $2, 1) \
-         ON CONFLICT (client_key, window_start) DO UPDATE SET hits = api_rate_windows.hits + 1 \
-         WHERE api_rate_windows.hits < $3 \
-         RETURNING hits",
-    )
-    .bind(key)
-    .bind(window_start)
-    .bind(limit)
-    .fetch_optional(&state.pool)
-    .await;
-    match hits {
-        Ok(Some(_)) => next.run(request).await,
-        // A rejected request does not mutate the counter. Without the WHERE
-        // predicate, a 160-request burst queued 120 unnecessary row updates
-        // behind the same PostgreSQL lock and caused client timeouts even
-        // though the correct outcome was already known after hit 40.
-        Ok(None) => (
+    let local_key = format!("{key}:{window_start}");
+    let reservation = if is_write { 1 } else { READ_RATE_RESERVATION };
+    // A small local reservation turns a large burst into at most ten shared
+    // database updates rather than one update per request. The database still
+    // grants every block atomically, so independent replicas cannot exceed
+    // the global 40-read/12-write allowance. Holding this short per-process
+    // lock covers only a quota reservation, never application work.
+    let allowed = {
+        let mut local_windows = state.rate_windows.lock().await;
+        local_windows.retain(|_, value| value.window_start >= now - 2 * 60);
+        if let Some(window) = local_windows.get_mut(&local_key) {
+            if window.remaining > 0 {
+                window.remaining -= 1;
+                Ok(true)
+            } else if window.exhausted {
+                Ok(false)
+            } else {
+                reserve_rate_block(&state.pool, &key, window_start, reservation, limit)
+                    .await
+                    .map(|granted| {
+                        *window = LocalRateWindow {
+                            window_start,
+                            remaining: granted.saturating_sub(1),
+                            exhausted: granted == 0,
+                        };
+                        granted > 0
+                    })
+            }
+        } else {
+            reserve_rate_block(&state.pool, &key, window_start, reservation, limit)
+                .await
+                .map(|granted| {
+                    local_windows.insert(
+                        local_key,
+                        LocalRateWindow {
+                            window_start,
+                            remaining: granted.saturating_sub(1),
+                            exhausted: granted == 0,
+                        },
+                    );
+                    granted > 0
+                })
+        }
+    };
+    match allowed {
+        Ok(true) => next.run(request).await,
+        Ok(false) => (
             StatusCode::TOO_MANY_REQUESTS,
             [
                 (header::RETRY_AFTER, retry_after.as_str()),
@@ -411,6 +444,32 @@ async fn shared_api_rate_limit(
                 .into_response()
         }
     }
+}
+
+async fn reserve_rate_block(
+    pool: &AnyPool,
+    key: &str,
+    window_start: i64,
+    reservation: i32,
+    limit: i32,
+) -> Result<i32, sqlx::Error> {
+    // PostgreSQL stores this column as INTEGER (i32), while SQLite's dynamic
+    // integer type had masked the wrong i64 decoder in local-only testing.
+    // `$1` parameters work with both PostgreSQL and SQLite. `AnyPool` selects
+    // a driver but does not rewrite `?` placeholders for PostgreSQL.
+    sqlx::query_scalar::<_, i32>(
+        "INSERT INTO api_rate_windows (client_key, window_start, hits) VALUES ($1, $2, $3) \
+         ON CONFLICT (client_key, window_start) DO UPDATE SET hits = api_rate_windows.hits + $3 \
+         WHERE api_rate_windows.hits <= $4 \
+         RETURNING hits",
+    )
+    .bind(key)
+    .bind(window_start)
+    .bind(reservation)
+    .bind(limit - reservation)
+    .fetch_optional(pool)
+    .await
+    .map(|hits| hits.map(|_| reservation).unwrap_or_default())
 }
 
 fn api_limit_error(error: GovernorError) -> Response {
@@ -604,6 +663,7 @@ async fn main() {
         build_sha: Arc::from(build_sha),
         pool,
         demo_lock: Arc::new(Mutex::new(())),
+        rate_windows: Arc::new(Mutex::new(HashMap::new())),
         encryption_key: Arc::new(encryption_key),
         entra: auth::EntraValidator::from_environment(http.clone()),
         http,
