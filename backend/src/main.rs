@@ -368,15 +368,21 @@ async fn shared_api_rate_limit(
         // limiter from failing closed with a syntax error.
         "INSERT INTO api_rate_windows (client_key, window_start, hits) VALUES ($1, $2, 1) \
          ON CONFLICT (client_key, window_start) DO UPDATE SET hits = api_rate_windows.hits + 1 \
+         WHERE api_rate_windows.hits < $3 \
          RETURNING hits",
     )
     .bind(key)
     .bind(window_start)
-    .fetch_one(&state.pool)
+    .bind(limit)
+    .fetch_optional(&state.pool)
     .await;
     match hits {
-        Ok(hits) if hits <= limit => next.run(request).await,
-        Ok(_) => (
+        Ok(Some(_)) => next.run(request).await,
+        // A rejected request does not mutate the counter. Without the WHERE
+        // predicate, a 160-request burst queued 120 unnecessary row updates
+        // behind the same PostgreSQL lock and caused client timeouts even
+        // though the correct outcome was already known after hit 40.
+        Ok(None) => (
             StatusCode::TOO_MANY_REQUESTS,
             [
                 (header::RETRY_AFTER, retry_after.as_str()),
