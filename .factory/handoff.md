@@ -131,3 +131,33 @@ These are external service-provisioning blockers, not repository TODOs. The
 implementation and deterministic deployed-path fixtures are complete, but the
 venture must not be declared releasable until live status and a controlled
 email-bounce-to-SMS booking pass against the provisioned services.
+
+## Live deployment evidence
+
+The repaired image was built by ACR from commit
+`56fcedd4cb0125f577a03a3204de843114e32b65` and deployed as Container App
+revision `sf-booking-recovery-loop--0000031`. `/health` returned that complete
+build SHA. The revision retained secret references for shared PostgreSQL and
+contact encryption, plus `REQUIRE_SHARED_DATABASE=1`.
+
+`node scripts/verify-live.mjs` passed against the public origin after the final
+image rollout. It observed 200 responses for every real route, a real 404 for
+an unknown route, three isolated demo bookings, token rotation on reset,
+same-origin-only demo traffic, no console errors, no 390 px overflow, and
+exactly 12 accepted writes followed by 429 with `Retry-After: 60`.
+
+The live Entra redirect used the required Sociobot CIAM origin, tenant
+`35c6fe40-0ec0-46b6-98c6-213ad4de6650`, client
+`25c704f4-465a-47af-80ab-2c489466b697`, production callback URI, authorization
+code flow, and PKCE S256. Unauthenticated practice access returned 401 with
+`WWW-Authenticate: Bearer`; an unsigned provider callback also returned 401.
+
+Mobile Lighthouse on the final image scored 100 performance, 100
+accessibility, 100 best practices, and 100 SEO. LCP was 1,666 ms, CLS was 0,
+TBT was 0 ms, and transfer size was 156,733 bytes. The server now gzip-compresses
+the hashed application bundle and retains its immutable cache policy.
+
+The live integration audit intentionally remains red: delivery reports
+`configured: false`, and the dedicated deposit product returns 404 from the
+approved billing API. Those results are the concrete operator-action evidence
+described above; no substitute provider or wrong billing product was enabled.
