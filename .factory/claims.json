@@ -129,7 +129,7 @@
     "id": "automatic-reminder",
     "claim": "A verified deposit queues one durable session reminder.",
     "where": "README product workflow and recovery queue",
-    "test": "cargo test --manifest-path backend/Cargo.toml hosted_payment_requires_verified_callback_and_is_idempotent",
+    "test": "cargo test --manifest-path backend/Cargo.toml automatic_reminder_is_queued_once_after_verified_deposit",
     "sandbox": "An isolated payment callback accepts one authenticated paid event and asserts the database contains exactly one queued session-reminder job."
   },
   {

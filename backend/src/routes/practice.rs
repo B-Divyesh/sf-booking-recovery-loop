@@ -1463,6 +1463,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn automatic_reminder_is_queued_once_after_verified_deposit() {
+        let (app, pool) = test_app().await;
+        let owner = create_owner(&app, "reminder-test").await;
+        let receipt_token = owner["receiptToken"].as_str().unwrap();
+        let practice_id = owner["practice"]["id"].as_str().unwrap();
+        let (_, attempt) = send(
+            &app,
+            "POST",
+            "/api/v1/public/reminder-test/attempts",
+            json!({
+                "clientName":"Sam Rivera", "email":"sam@example.test", "phone":null,
+                "scheduledFor":"2030-05-10T12:00:00Z", "emailConsent":true, "smsConsent":false
+            }),
+            None,
+        )
+        .await;
+        let attempt_id = attempt["attemptId"].as_str().unwrap();
+        let payload = json!({
+            "attemptId":attempt_id,
+            "providerEventId":"reminder-payment-verified-1",
+            "status":"paid"
+        });
+
+        for duplicate in [false, true] {
+            let request = Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/provider/{practice_id}/payments"))
+                .header("content-type", "application/json")
+                .header("x-receipt-token", receipt_token)
+                .header("x-forwarded-for", "198.51.100.92")
+                .body(Body::from(payload.to_string()))
+                .unwrap();
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let value: Value =
+                serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                    .unwrap();
+            assert_eq!(value["duplicate"], duplicate);
+        }
+
+        let reminders: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM practice_scheduled_jobs \
+             WHERE attempt_id = ? AND kind = 'session_reminder' AND status = 'queued'",
+        )
+        .bind(attempt_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            reminders, 1,
+            "a verified deposit queues one durable reminder"
+        );
+    }
+
+    #[tokio::test]
     async fn occupied_slot_cannot_be_double_booked() {
         let (app, pool) = test_app().await;
         create_owner(&app, "slot-test").await;
