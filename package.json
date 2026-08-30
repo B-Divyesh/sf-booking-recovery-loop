@@ -15,6 +15,7 @@
     "test:claim:e2e": "npm ci --ignore-scripts && playwright test",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:claims": "node scripts/verify-claims.mjs",
     "test:deployment": "node scripts/check-deployment.mjs",
     "test:server": "npm run build && cargo run --manifest-path backend/Cargo.toml",
     "test:all": "npm test && npm run check:backend && npm run test:deployment && npm run test:e2e && npm run build",

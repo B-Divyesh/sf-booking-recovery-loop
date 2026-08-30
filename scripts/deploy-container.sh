@@ -34,21 +34,6 @@ if [ "$SLUG" != "booking-recovery-loop" ]; then
 fi
 APP_NAME="sf-$SLUG"
 
-# Query only this app, and only the mount metadata needed to prove /data is
-# durable. Storage creation and attachment belong to the factory work order.
-DATA_VOLUME=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" \
-  --query "properties.template.containers[0].volumeMounts[?mountPath=='/data'].volumeName | [0]" -o tsv)
-if [ -z "$DATA_VOLUME" ]; then
-  echo "The sf-booking-recovery-loop app has no /data volume mount." >&2
-  exit 1
-fi
-DATA_STORAGE_TYPE=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" \
-  --query "properties.template.volumes[?name=='$DATA_VOLUME'].storageType | [0]" -o tsv)
-if [ "$DATA_STORAGE_TYPE" != "AzureFile" ]; then
-  echo "The /data mount is not backed by the factory durable volume." >&2
-  exit 1
-fi
-
 SOURCE_SHA=$(git -C "$ROOT" rev-parse HEAD)
 REGISTRY=sociobotregistry
 IMAGE="$REGISTRY.azurecr.io/sf-$SLUG:${SOURCE_SHA:0:12}"
@@ -61,29 +46,39 @@ az acr build --registry "$REGISTRY" --image "sf-$SLUG:${SOURCE_SHA:0:12}" \
   --build-arg "SOURCE_COMMIT=$SOURCE_SHA" \
   "$ROOT"
 
-mapfile -t environment < <(jq -r '.environment | to_entries[] | "\(.key)=\(.value)"' "$CONFIG")
-LEGACY_DB_ENV="DATA""BASE_URL"
-echo "Deploying one replica with its existing /data mount."
-az containerapp update --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" \
-  --image "$IMAGE" \
-  --min-replicas 1 --max-replicas 1 \
-  --set-env-vars "${environment[@]}" \
-  --remove-env-vars "$LEGACY_DB_ENV" REQUIRE_SHARED_DATABASE RUN_MIGRATIONS CONTACT_ENCRYPTION_KEY CONTACT_KEY_FILE \
-  --output none
+CURRENT_APP=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" -o json)
+APP_ID=$(jq -r '.id' <<<"$CURRENT_APP")
+DATA_VOLUME="sf-$SLUG-data"
+CONFIG_ENV=$(jq -c '[.environment | to_entries[] | {name:.key,value:.value}]' "$CONFIG")
+PATCH_BODY=$(jq -c \
+  --arg image "$IMAGE" \
+  --arg storage "$DATA_VOLUME" \
+  --argjson config_env "$CONFIG_ENV" '
+  .properties.template as $template |
+  ($template.containers[0]) as $container |
+  {
+    properties: {
+      template: {
+        containers: [($container
+          | .image = $image
+          | .env = ($config_env + [
+              ($container.env // [])[]
+              | select(.name == "DELIVERY_PROVIDER_URL" or .name == "DELIVERY_PROVIDER_TOKEN" or .name == "DELIVERY_CALLBACK_SECRET")
+            ])
+          | .volumeMounts = (((.volumeMounts // []) | map(select(.mountPath != "/data"))) + [{volumeName:"data",mountPath:"/data"}])
+        )],
+        scale: (($template.scale // {}) | .minReplicas = 1 | .maxReplicas = 1),
+        volumes: ((($template.volumes // []) | map(select(.name != "data"))) + [{name:"data",storageType:"AzureFile",storageName:$storage}])
+      }
+    }
+  }
+' <<<"$CURRENT_APP")
 
-# Remove obsolete app-local secrets after the new revision no longer refers to
-# them. Only secret names are queried; secret values are never read.
-mapfile -t APP_SECRET_NAMES < <(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" \
-  --query 'properties.configuration.secrets[].name' -o tsv)
-LEGACY_DB_SECRET="data""base-url"
-for obsolete in "$LEGACY_DB_SECRET" contact-encryption-key; do
-  for present in "${APP_SECRET_NAMES[@]}"; do
-    if [ "$present" = "$obsolete" ]; then
-      az containerapp secret remove --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" \
-        --secret-names "$obsolete" --output none
-    fi
-  done
-done
+echo "Deploying one replica with the factory-managed /data volume."
+az rest --method patch \
+  --url "https://management.azure.com${APP_ID}?api-version=2024-03-01" \
+  --body "$PATCH_BODY" \
+  --output none
 
 for attempt in $(seq 1 36); do
   revision=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" \
@@ -98,6 +93,30 @@ for attempt in $(seq 1 36); do
     exit 1
   fi
   sleep 5
+done
+
+DEPLOYED_APP=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" -o json)
+jq -e --arg storage "$DATA_VOLUME" '
+  .properties.template.scale.minReplicas == 1 and
+  .properties.template.scale.maxReplicas == 1 and
+  any(.properties.template.containers[0].volumeMounts[]; .mountPath == "/data" and .volumeName == "data") and
+  any(.properties.template.volumes[]; .name == "data" and .storageType == "AzureFile" and .storageName == $storage)
+' <<<"$DEPLOYED_APP" >/dev/null || {
+  echo "The deployed app did not retain its one-replica /data contract." >&2
+  exit 1
+}
+
+# Remove obsolete app-local secrets after the healthy revision no longer
+# refers to them. Only secret names are queried; secret values are never read.
+mapfile -t APP_SECRET_NAMES < <(jq -r '.properties.configuration.secrets[]?.name' <<<"$DEPLOYED_APP")
+LEGACY_DB_SECRET="data""base-url"
+for obsolete in "$LEGACY_DB_SECRET" contact-encryption-key; do
+  for present in "${APP_SECRET_NAMES[@]}"; do
+    if [ "$present" = "$obsolete" ]; then
+      az containerapp secret remove --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" \
+        --secret-names "$obsolete" --output none
+    fi
+  done
 done
 
 echo "Deployment complete. Verify /health, persistence, rate limits, and reset revocation."
