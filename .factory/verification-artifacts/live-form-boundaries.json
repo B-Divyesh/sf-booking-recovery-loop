@@ -1,0 +1,261 @@
+{
+  "name": [
+    {
+      "value": "A",
+      "valid": false,
+      "message": "Please lengthen this text to 2 characters or more (you are currently using 1 character).",
+      "validity": {
+        "tooShort": true,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    },
+    {
+      "value": "AB",
+      "valid": true,
+      "message": "",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    }
+  ],
+  "publicSlug": [
+    {
+      "value": "ab",
+      "valid": false,
+      "message": "Please match the requested format.",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": true,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    },
+    {
+      "value": "abc",
+      "valid": true,
+      "message": "",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    },
+    {
+      "value": "Bad-Slug",
+      "valid": false,
+      "message": "Please match the requested format.",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": true,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    },
+    {
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": false,
+      "message": "Please match the requested format.",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": true,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    }
+  ],
+  "durationMinutes": [
+    {
+      "value": "14",
+      "valid": false,
+      "message": "Value must be greater than or equal to 15.",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": true,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    },
+    {
+      "value": "15",
+      "valid": true,
+      "message": "",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    },
+    {
+      "value": "480",
+      "valid": true,
+      "message": "",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    },
+    {
+      "value": "481",
+      "valid": false,
+      "message": "Value must be less than or equal to 480.",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": true,
+        "valueMissing": false
+      }
+    }
+  ],
+  "depositCents": [
+    {
+      "value": "-1",
+      "valid": false,
+      "message": "Value must be greater than or equal to 0.",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": true,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    },
+    {
+      "value": "0",
+      "valid": true,
+      "message": "",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    },
+    {
+      "value": "1000000",
+      "valid": true,
+      "message": "",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    },
+    {
+      "value": "1000001",
+      "valid": false,
+      "message": "Value must be less than or equal to 1000000.",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": true,
+        "valueMissing": false
+      }
+    }
+  ],
+  "currency": [
+    {
+      "value": "GB",
+      "valid": false,
+      "message": "Please lengthen this text to 3 characters or more (you are currently using 2 characters).",
+      "validity": {
+        "tooShort": true,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    },
+    {
+      "value": "GBP",
+      "valid": true,
+      "message": "",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    },
+    {
+      "value": "GBP",
+      "valid": true,
+      "message": "",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    }
+  ],
+  "timezone": [
+    {
+      "value": "",
+      "valid": false,
+      "message": "Please fill out this field.",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": true
+      }
+    },
+    {
+      "value": "Europe/London",
+      "valid": true,
+      "message": "",
+      "validity": {
+        "tooShort": false,
+        "tooLong": false,
+        "patternMismatch": false,
+        "rangeUnderflow": false,
+        "rangeOverflow": false,
+        "valueMissing": false
+      }
+    }
+  ]
+}

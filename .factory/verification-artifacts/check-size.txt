@@ -1,0 +1,6 @@
+
+> booking-recovery-loop@0.1.0 check:size
+> node scripts/check-bundle.mjs
+
+index-Bqqmy4wO.js: 79444 bytes (gzip; limit 204800)
+index-SwX_V9RN.css: 22252 bytes (raw; limit 51200)

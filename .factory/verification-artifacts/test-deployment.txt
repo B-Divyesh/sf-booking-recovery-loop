@@ -1,0 +1,5 @@
+
+> booking-recovery-loop@0.1.0 test:deployment
+> node scripts/check-deployment.mjs
+
+Production deployment boundary: one replica with durable SQLite state under /data

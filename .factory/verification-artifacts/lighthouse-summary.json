@@ -1,0 +1,13 @@
+{
+  "performance": 100,
+  "accessibility": 100,
+  "bestPractices": 100,
+  "seo": 100,
+  "FCP": 1292.3575,
+  "LCP": 1703.869411392212,
+  "TBT": 26.5,
+  "CLS": 0,
+  "speedIndex": 1292.3575,
+  "totalBytes": 156703,
+  "cacheScore": 1
+}

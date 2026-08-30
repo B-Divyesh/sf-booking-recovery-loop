@@ -1,0 +1,13 @@
+
+> booking-recovery-loop@0.1.0 build
+> tsc --noEmit && vite build
+
+vite v6.4.3 building for production...
+transforming...
+✓ 147 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   2.34 kB │ gzip:  0.71 kB
+dist/assets/index-SwX_V9RN.css   22.25 kB │ gzip:  4.95 kB
+dist/assets/index-Bqqmy4wO.js   309.11 kB │ gzip: 79.44 kB │ map: 1,219.45 kB
+✓ built in 2.24s

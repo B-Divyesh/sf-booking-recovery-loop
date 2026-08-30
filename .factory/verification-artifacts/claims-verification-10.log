@@ -1,0 +1,457 @@
+
+> booking-recovery-loop@0.1.0 test:claims
+> node scripts/verify-claims.mjs
+
+
+[claim:demo-isolated] cargo test --manifest-path backend/Cargo.toml demo_never_reads_or_mutates_real_practice_fixture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.77s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::demo::tests::demo_never_reads_or_mutates_real_practice_fixture ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.07s
+
+
+[claim:demo-lifetime] cargo test --manifest-path backend/Cargo.toml portable_token_has_256_random_bits_and_24_hour_expiry
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::demo::tests::portable_token_has_256_random_bits_and_24_hour_expiry ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.00s
+
+
+[claim:sqlite-restart-persistence] cargo test --manifest-path backend/Cargo.toml demo_workspace_survives_sqlite_restart_in_data_directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::demo::tests::demo_workspace_survives_sqlite_restart_in_data_directory ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.13s
+
+
+[claim:forwarded-rate-limit] cargo test --manifest-path backend/Cargo.toml durable_write_limit_allows_only_twelve_of_forty_independent_writes
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::demo::tests::durable_write_limit_allows_only_twelve_of_forty_independent_writes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.19s
+
+
+[claim:forwarded-read-rate-limit] cargo test --manifest-path backend/Cargo.toml durable_read_limit_allows_only_forty_of_one_hundred_sixty_independent_reads
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::demo::tests::durable_read_limit_allows_only_forty_of_one_hundred_sixty_independent_reads ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.20s
+
+
+[claim:demo-no-account-payment] npm run test:claim:e2e -- --grep @claim:demo-no-account-payment
+
+> booking-recovery-loop@0.1.0 test:claim:e2e
+> npm ci --ignore-scripts && playwright test --grep @claim:demo-no-account-payment
+
+
+added 64 packages, and audited 65 packages in 6s
+
+17 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+[WebServer] (node:16590) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:16634) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer]     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+[WebServer]      Running `backend/target/debug/booking-recovery-loop-api`
+
+Running 1 test using 1 worker
+
+(node:16661) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:16661) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/e2e/claims.spec.ts:58:1 › @claim:demo-no-account-payment opens without account or payment (954ms)
+
+  1 passed (11.3s)
+
+[claim:demo-reset] cargo test --manifest-path backend/Cargo.toml reset_revokes_old_token_across_independent_connections
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.73s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::demo::tests::reset_revokes_old_token_across_independent_connections ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.09s
+
+
+[claim:consent-gates-recovery] npm run test:claim:e2e -- --grep @claim:consent-gates-recovery
+
+> booking-recovery-loop@0.1.0 test:claim:e2e
+> npm ci --ignore-scripts && playwright test --grep @claim:consent-gates-recovery
+
+
+added 64 packages, and audited 65 packages in 6s
+
+17 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+[WebServer] (node:16780) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:16820) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer]     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.19s
+[WebServer]      Running `backend/target/debug/booking-recovery-loop-api`
+
+Running 1 test using 1 worker
+
+(node:16847) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:16847) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/e2e/claims.spec.ts:91:1 › @claim:consent-gates-recovery stops a message without consent (1.5s)
+
+  1 passed (11.7s)
+
+[claim:demo-recovery-receipt] npm run test:claim:e2e -- --grep @claim:demo-recovery-receipt
+
+> booking-recovery-loop@0.1.0 test:claim:e2e
+> npm ci --ignore-scripts && playwright test --grep @claim:demo-recovery-receipt
+
+
+added 64 packages, and audited 65 packages in 5s
+
+17 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+[WebServer] (node:16980) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:17020) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer]     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+[WebServer]      Running `backend/target/debug/booking-recovery-loop-api`
+
+Running 1 test using 1 worker
+
+(node:17050) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17050) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/e2e/claims.spec.ts:105:1 › @claim:demo-recovery-receipt adds a timestamped simulated receipt (1.3s)
+
+  1 passed (11.5s)
+
+[claim:demo-no-external-requests] npm run test:claim:e2e -- --grep @claim:demo-no-external-requests
+
+> booking-recovery-loop@0.1.0 test:claim:e2e
+> npm ci --ignore-scripts && playwright test --grep @claim:demo-no-external-requests
+
+
+added 64 packages, and audited 65 packages in 5s
+
+17 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+[WebServer] (node:17162) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:17202) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer]     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.16s
+[WebServer]      Running `backend/target/debug/booking-recovery-loop-api`
+
+Running 1 test using 1 worker
+
+(node:17228) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17228) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/e2e/claims.spec.ts:115:1 › @claim:demo-no-external-requests keeps the full demo flow same-origin (1.3s)
+
+  1 passed (11.6s)
+
+[claim:sample-three-bookings] npm run test:claim:e2e -- --grep @claim:sample-three-bookings
+
+> booking-recovery-loop@0.1.0 test:claim:e2e
+> npm ci --ignore-scripts && playwright test --grep @claim:sample-three-bookings
+
+
+added 64 packages, and audited 65 packages in 5s
+
+17 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+[WebServer] (node:17338) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:17397) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer]     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.18s
+[WebServer]      Running `backend/target/debug/booking-recovery-loop-api`
+
+Running 1 test using 1 worker
+
+(node:17423) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17423) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/e2e/claims.spec.ts:131:1 › @claim:sample-three-bookings opens one-click sample data (830ms)
+
+  1 passed (11.1s)
+
+[claim:practice-publish] npm run test:claim:e2e -- --grep @claim:practice-publish
+
+> booking-recovery-loop@0.1.0 test:claim:e2e
+> npm ci --ignore-scripts && playwright test --grep @claim:practice-publish
+
+
+added 64 packages, and audited 65 packages in 6s
+
+17 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+[WebServer] (node:17535) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:17575) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer]     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+[WebServer]      Running `backend/target/debug/booking-recovery-loop-api`
+
+Running 1 test using 1 worker
+
+(node:17602) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17602) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/e2e/claims.spec.ts:169:1 › @claim:practice-publish creates an Entra-owned workspace and public page (794ms)
+
+  1 passed (11.1s)
+
+[claim:booking-consent-record] npm run test:claim:e2e -- --grep @claim:booking-consent-record
+
+> booking-recovery-loop@0.1.0 test:claim:e2e
+> npm ci --ignore-scripts && playwright test --grep @claim:booking-consent-record
+
+
+added 64 packages, and audited 65 packages in 5s
+
+17 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+[WebServer] (node:17729) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:17769) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer]     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.16s
+[WebServer]      Running `backend/target/debug/booking-recovery-loop-api`
+
+Running 1 test using 1 worker
+
+(node:17801) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17801) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/e2e/claims.spec.ts:184:1 › @claim:booking-consent-record saves consent before hosted payment (1.2s)
+
+  1 passed (11.4s)
+
+[claim:encrypted-tenant-data] cargo test --manifest-path backend/Cargo.toml production_contacts_are_encrypted_and_tenant_scoped
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::practice::tests::production_contacts_are_encrypted_and_tenant_scoped ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.03s
+
+
+[claim:shared-practice-storage] cargo test --manifest-path backend/Cargo.toml sqlite_file_prevents_independent_connection_read_and_delete_split
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::practice::tests::sqlite_file_prevents_independent_connection_read_and_delete_split ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.35s
+
+
+[claim:export-delete] cargo test --manifest-path backend/Cargo.toml export_and_delete_cover_the_complete_practice_record
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::practice::tests::export_and_delete_cover_the_complete_practice_record ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.03s
+
+
+[claim:delivery-fallback-receipts] cargo test --manifest-path backend/Cargo.toml configured_delivery_and_sociobot_checkout_fix_the_release_blocker_end_to_end
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::practice::tests::configured_delivery_and_sociobot_checkout_fix_the_release_blocker_end_to_end ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.04s
+
+
+[claim:verified-deposit] cargo test --manifest-path backend/Cargo.toml hosted_payment_requires_verified_callback_and_is_idempotent
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::practice::tests::hosted_payment_requires_verified_callback_and_is_idempotent ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.02s
+
+
+[claim:no-double-booking] cargo test --manifest-path backend/Cargo.toml occupied_slot_cannot_be_double_booked
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::practice::tests::occupied_slot_cannot_be_double_booked ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.02s
+
+
+[claim:automatic-recovery] cargo test --manifest-path backend/Cargo.toml automatic_recovery_is_durable_consent_gated_and_idempotent
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::practice::tests::automatic_recovery_is_durable_consent_gated_and_idempotent ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.03s
+
+
+[claim:automatic-recovery-delay] cargo test --manifest-path backend/Cargo.toml automatic_recovery_is_scheduled_exactly_15_minutes_after_unpaid_booking
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::practice::tests::automatic_recovery_is_scheduled_exactly_15_minutes_after_unpaid_booking ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.02s
+
+
+[claim:automatic-reminder] cargo test --manifest-path backend/Cargo.toml automatic_reminder_is_delivered_once_when_due_after_verified_deposit
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::practice::tests::automatic_reminder_is_delivered_once_when_due_after_verified_deposit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.03s
+
+
+[claim:practice-data-inventory] cargo test --manifest-path backend/Cargo.toml practice_data_inventory_matches_the_exported_record_types
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::practice::tests::practice_data_inventory_matches_the_exported_record_types ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.03s
+
+
+[claim:card-data-excluded] npm run test:claim:e2e -- --grep @claim:card-data-excluded
+
+> booking-recovery-loop@0.1.0 test:claim:e2e
+> npm ci --ignore-scripts && playwright test --grep @claim:card-data-excluded
+
+
+added 64 packages, and audited 65 packages in 5s
+
+17 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+[WebServer] (node:17993) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:18033) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer]     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+[WebServer]      Running `backend/target/debug/booking-recovery-loop-api`
+
+Running 1 test using 1 worker
+
+(node:18059) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18059) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/e2e/claims.spec.ts:146:1 › @claim:card-data-excluded has no card fields before hosted payment (1.3s)
+
+  1 passed (10.5s)
+
+[claim:delivery-connection-test] cargo test --manifest-path backend/Cargo.toml delivery_connection_test_verifies_the_provider_without_client_data
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::practice::tests::delivery_connection_test_verifies_the_provider_without_client_data ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.02s
+
+
+[claim:practice-plan-price] npm run test:claim:e2e -- --grep @claim:practice-plan-price
+
+> booking-recovery-loop@0.1.0 test:claim:e2e
+> npm ci --ignore-scripts && playwright test --grep @claim:practice-plan-price
+
+
+added 64 packages, and audited 65 packages in 6s
+
+17 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+[WebServer] (node:18194) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:18236) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer]     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.16s
+[WebServer]      Running `backend/target/debug/booking-recovery-loop-api`
+
+Running 1 test using 1 worker
+
+(node:18263) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18263) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/e2e/claims.spec.ts:138:1 › @claim:practice-plan-price shows the priced plan and current checkout state (707ms)
+
+  1 passed (10.8s)
+
+[claim:server-owned-integration-boundary] cargo test --manifest-path backend/Cargo.toml integration_status_requires_registered_billing_product_and_never_serializes_server_credentials
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test routes::practice::tests::integration_status_requires_registered_billing_product_and_never_serializes_server_credentials ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.02s
+
+
+[claim:entra-token-validation] cargo test --manifest-path backend/Cargo.toml production_token_validation_requires_discovery_signature_audience_tenant_time_and_oid
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/main.rs (backend/target/debug/deps/booking_recovery_loop_api-b945d80b8074918e)
+
+running 1 test
+test auth::tests::production_token_validation_requires_discovery_signature_audience_tenant_time_and_oid ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.01s
+
+
+All 28 claim commands passed individually.
