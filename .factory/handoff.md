@@ -1,149 +1,123 @@
-# Repair 11 handoff — code repaired; factory provisioning still blocks release
+# Repair 12 handoff — durable SQLite release deployed and verified
 
 **Verifier report:** `d16d0ff6a9bc0f0f01643afdc20534431b6c7181`
 
-**Candidate reproduced:** `52bc3a0b397b94dedf859edc3df0169ba5e6768d`
+**Repair input:** `05bad283d32411f1aabc5dd35b294c1b531409a0`
 
-**Repaired runtime source:** `da417e3579af`
+**Verified runtime source:** `2754586c4ef8110d32ec57d4e310f673901ff2b7`
 
 **Live URL:** <https://booking-recovery-loop.sociobot.in>
 
 ## Outcome
 
-The mandatory storage remediation ran first. Runtime state now uses only a
-WAL-enabled SQLite file and generated contact key under `/data`. The deployment
-contract pins one replica and `deploy.data_dir` remains `/data`. The Rust
-dependency graph is SQLite-only. A repository regression check reconstructs
-and rejects every controller-supplied prohibited resource identifier, legacy
-connection setting, server-database URL, and non-SQLite driver name without
-retaining those strings in source.
+The release-blocking durable-storage deployment failure is repaired. The
+repository deploy wrapper now delegates storage creation and mounting to the
+factory deployer with `deploy.data_dir=/data`; it no longer sends an
+application patch that refers to a share before the fleet has created it.
 
-The rate-limit, reset, and clean-clone claim findings are repaired with exact
-regression coverage. The running app has also been safely pinned to one
-replica, and independent live probes now return the required counts.
+The factory created and mounted `sf-booking-recovery-loop-data`, deployed
+revision `sf-booking-recovery-loop--0000071`, and left the application at one
+running replica. The live process stores state in
+`/data/state/booking-recovery-loop.sqlite3`. Its startup log identifies that
+SQLite path and a reused persisted contact key.
 
-The repaired image cannot be released yet. The factory-managed Container Apps
-environment storage `sf-booking-recovery-loop-data` does not exist. The app
-patch was rejected before any revision change. The separate deposit product
-and credentialed delivery relay also remain unprovisioned. The product still
-fails closed for deposits and real messages, so this handoff does **not** claim
-release readiness.
+The first mounted boots also exposed an Azure Files lock incompatibility that
+could not appear before the share existed. The runtime now uses SQLite's
+rollback journal, one pool connection, and the SQLite `nolock=1` URI mode
+under the enforced one-replica boundary. Startup retries transient lock errors.
+The failed WAL bootstrap file was left untouched; the usable database lives in
+the new `/data/state` directory.
 
-## Reproduction and repair
+The storage-safe single connection made the previous token-bucket read limit
+latency-dependent. Reads now replenish once per second, so an immediate burst
+is exactly 40 regardless of SQLite response latency. The live independent
+probe returns 40 accepted and 120 limited reads.
 
-- The candidate contains 42 prohibited storage/config references outside lock
-  files. Its deployment contract selects an external server database and three
-  replicas. This was reproduced from the candidate tree before edits.
-- The API now starts with only `PORT`, creates
-  `/data/booking-recovery-loop.sqlite3` plus `/data/contact.key`, enables WAL,
-  runs migrations, and logs whether configuration was supplied or generated
-  without logging secret material.
-- A local SQLite-only SQLx facade removes unused server-database drivers from
-  `Cargo.lock` and the container build graph.
-- One process-wide limiter uses the first forwarded client IP. Writes permit
-  exactly 12 immediate requests; reads permit exactly 40. Every rejected
-  request returns 429, `Retry-After`, and the advertised limit.
-- Demo reset revokes the old token for every subsequent connection. Demo and
-  practice data are read from the same durable SQLite file.
-- `.factory/claims.json` adds restart persistence and independent read-limit
-  claims. `npm run test:claims` invokes every one of the 28 listed commands.
-  Browser claim commands install locked dependencies themselves, including
-  from an archived checkout with no `node_modules`.
-- The deploy wrapper touches only `sf-booking-recovery-loop`, preserves only
-  approved delivery references, mounts the expected factory volume, enforces
-  one replica, validates the result, and removes obsolete app-local secret
-  names without reading values.
+## Exact reproduction and regression coverage
 
-## Verification evidence
+- Candidate `05bad28` passed its old deployment test even though
+  `scripts/deploy-container.sh` called Azure directly and referenced
+  `sf-booking-recovery-loop-data` before provisioning. The recorded release
+  failed with `ManagedEnvironmentStorageNotFound`.
+- The new deployment regression initially failed on the candidate with
+  `The product deploy wrapper must not perform direct cloud mutation: az acr`.
+  It now executes the wrapper against a fake factory deployer and proves the
+  exact arguments: `booking-recovery-loop`, repository root, `Dockerfile`,
+  port `8080`, and `WO_DATA_DIR=/data`.
+- `mounted_sqlite_startup_avoids_unsupported_network_file_locks` holds an
+  external SQLite lock while the mounted-filesystem runtime opens, migrates,
+  and reads the same database in one-process mode.
+- Existing restart, cross-connection, reset-revocation, recovery concurrency,
+  tenant-isolation, auth, billing-boundary, and delivery-fixture regressions
+  remain green.
 
-All checks below passed on 2026-08-30 UTC.
+## Local verification
 
-- `npm ci` — 64 packages installed; 0 vulnerabilities.
-- `npm test` — 11/11 tests.
-- `npm run check:backend` — 33/33 tests, including independent request
-  handles, reset revocation, cross-pool isolation, migrations, and two SQLite
-  restart tests.
+Run on 2026-08-30 UTC from locked dependencies:
+
+- `npm ci` — 64 packages; 0 vulnerabilities.
+- `npm run test:all` — 11/11 Vitest tests, 34/34 Rust tests, deployment
+  regression pass, 28/28 Chromium tests, and production build pass.
 - `cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings`
   — pass.
 - `cargo build --manifest-path backend/Cargo.toml --release --locked` — pass.
-- `npm run test:deployment` — pass, including the prohibited-reference scan,
-  `/data` contract, WAL, and exactly one replica.
-- `npm run build && npm run check:size` — pass; JavaScript 79,408 bytes gzip,
-  CSS 22,252 bytes raw.
-- `npm run test:e2e` — 28/28 Chromium checks. This covers desktop, 390 px,
-  200% text, keyboard, focus/history, serious/critical Axe checks, privacy,
-  offline error handling, response policy, cache behavior, and claims.
-- `npm run test:claims` — every one of 28 manifest commands passed
-  independently.
-- Fresh `git archive` checkout with no dependencies:
-  `npm run test:claim:e2e -- --grep @claim:demo-no-account-payment` — pass
-  after the script's own clean install.
-- Only-`PORT` release process restart — the first process created workspace
-  `01a05138-f672-7be3-9897-37279004b5c7`; after graceful stop and a fresh
-  process, the same token returned that ID and all three sample attempts from
-  `/data/booking-recovery-loop.sqlite3`. The persisted key was reused.
-- Standalone Axe 4.10.3 — 0 violations on `/`, `/demo`, `/privacy`, `/terms`.
-- `verify-url.sh` — 563 ms load, zero console errors, correct title and `lang`,
-  one h1, one main landmark, zero missing alt attributes.
-- Local Lighthouse: Performance 99, Accessibility 100, Best Practices 100,
-  SEO 100; FCP 1,414 ms, LCP 1,727 ms, CLS 0, TBT 0 ms, transfer 160,474 bytes.
+- `npm run test:claims` — all 28 manifest commands passed independently.
+- `npm run check:size` — JavaScript 79,408 bytes gzip; CSS 22,252 bytes raw.
+- Browser coverage includes desktop, 390 px, 200% text, keyboard-only use,
+  focus/history, serious/critical Axe checks, offline error handling,
+  same-origin privacy, cache headers, security policy, and true 404 responses.
+- Local Docker/Podman was unavailable. Factory ACR build `ch1m9` built the
+  production Dockerfile successfully.
 
-Local reports and screenshots are under
-[`repair-11-evidence`](repair-11-evidence/).
+## Live verification
 
-## Live state and deployment evidence
+- `/health` returns
+  `2754586c4ef8110d32ec57d4e310f673901ff2b7`.
+- Azure reports revision `sf-booking-recovery-loop--0000071` healthy with
+  `minReplicas=1`, `maxReplicas=1`, and one running replica.
+- The app has one `AzureFile` volume named
+  `sf-booking-recovery-loop-data`, mounted at `/data`.
+- Restart persistence passed. Workspace
+  `01a0518f-fc1a-7663-88da-2923e2d31476` had three bookings before and after
+  an explicit restart of revision `0000071`; it also survived the preceding
+  revision deployment.
+- The startup log reports
+  `sqlite_path=/data/state/booking-recovery-loop.sqlite3` and
+  `key_source=persisted`. The dependency graph and deployment check contain
+  only the SQLite database driver.
+- `scripts/verify-live.mjs` passed: all product routes, desktop and 390 px
+  layouts, same-origin demo traffic, zero console errors, 12 accepted plus 28
+  limited writes, 40 accepted plus 120 limited reads, and 24/24 revoked-token
+  reads returning 404.
+- `verify-url.sh` passed in 591 ms: correct title/lang, one h1, one main,
+  no missing alt text, no unlabeled buttons, and no console errors.
+- Live Lighthouse: Performance 100, Accessibility 100, Best Practices 100,
+  SEO 100; FCP 1,311 ms, LCP 1,701 ms, CLS 0, TBT 24 ms, transfer 156,742 bytes.
+- Unauthenticated owner API requests return 401 with
+  `WWW-Authenticate: Bearer`. Unknown routes return 404. Hashed assets return
+  `Cache-Control: public, max-age=31536000, immutable`.
 
-- Running source remains candidate
-  `52bc3a0b397b94dedf859edc3df0169ba5e6768d`, revision
-  `sf-booking-recovery-loop--0000063`. The repaired image was not activated.
-- The named app now has `minReplicas: 1`, `maxReplicas: 1`. Its only app
-  setting name is `PORT`; it reports no app secret names. No protected service,
-  setting, or secret was inspected or changed.
-- Independent live request contexts now prove 12 created plus 28 limited
-  writes, 40 loaded plus 120 limited reads, and 24/24 old-token reads returning
-  404. Every limiter response includes the required headers. See
-  [`live-check.json`](repair-11-evidence/live-current/live-check.json).
-- Live routes, 390 px layout, same-origin demo, subscription checkout, and
-  console checks pass. `/health` correctly identifies the still-running
-  candidate.
-- Live integration status reports both dedicated billing and delivery as
-  unconfigured. The dedicated deposit checkout returns 404.
-- ACR build `ch1hb` built and pushed runtime source `da417e3579af` as image
-  digest `sha256:542ce310a5dc4c546f70557f98472ed939a3ea75da20efd756ca05f6848478fd`.
-  Its log fetched and compiled only the SQLite SQLx driver. The app-only patch returned
-  `ManagedEnvironmentStorageNotFound` for
-  `sf-booking-recovery-loop-data`. The request failed before changing the
-  revision. The repair deliberately did not create or inspect shared storage,
-  DNS, certificates, registries, vaults, databases, or other applications.
+Evidence is under [`.factory/repair-12-evidence/`](repair-12-evidence/).
 
-## Needs operator action
+## Remaining operator-owned integrations
 
-1. Let the factory provision and attach the work order's durable
-   `sf-booking-recovery-loop-data` environment storage at `/data`. Do not point
-   this app at any legacy data service.
-2. Register and activate the variable-amount
-   `booking-recovery-loop-deposit` product in the Sociobot billing service.
-3. Provision the approved credentialed email/SMS relay URL, bearer token, and
-   callback secret on this app only.
-4. Run `./scripts/deploy-container.sh`, then verify `/health` reports the repair
-   commit and repeat the process-restart persistence probe against the mounted
-   `/data` file.
-5. Complete one real Entra owner → public booking → hosted deposit → verified
-   callback → recovery/reminder/receipt → signed bounce → one SMS fallback
-   flow. These external effects cannot be honestly proven while the two
-   integrations report unconfigured.
+The live integration-status endpoint still reports the dedicated booking
+deposit product and credentialed email/SMS relay as unconfigured. The code
+fails closed and its recorded fixture tests pass, but real deposits and
+outbound messages remain unavailable until the factory provisions those two
+product-specific integrations. The Entra callback registration also still
+needs operator confirmation. No shared service, database, secret, or
+out-of-scope application was inspected or modified during this repair.
 
 ## Commands
 
 ```sh
 npm ci
-npm test
-npm run check:backend
+npm run test:all
 cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings
-npm run test:deployment
-npm run build
-npm run check:size
-npm run test:e2e
+cargo build --manifest-path backend/Cargo.toml --release --locked
 npm run test:claims
+npm run check:size
 ./scripts/deploy-container.sh
+node scripts/verify-live.mjs https://booking-recovery-loop.sociobot.in .factory/repair-12-evidence/live-final
 ```

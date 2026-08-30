@@ -1,0 +1,61 @@
+{
+  "verifiedAt": "2026-08-30T07:42:01Z",
+  "sourceCommit": "2754586c4ef8110d32ec57d4e310f673901ff2b7",
+  "acrBuildRun": "ch1m9",
+  "application": "sf-booking-recovery-loop",
+  "revision": "sf-booking-recovery-loop--0000071",
+  "health": "Healthy",
+  "runningState": "RunningAtMaxScale",
+  "replicas": 1,
+  "scale": {
+    "minReplicas": 1,
+    "maxReplicas": 1
+  },
+  "storage": {
+    "name": "sf-booking-recovery-loop-data",
+    "type": "AzureFile",
+    "mountPath": "/data"
+  },
+  "database": {
+    "engine": "sqlite",
+    "path": "/data/state/booking-recovery-loop.sqlite3",
+    "journalMode": "DELETE",
+    "singleConnection": true,
+    "startupLogObserved": true
+  },
+  "restartPersistence": {
+    "workspaceIdBefore": "01a0518f-fc1a-7663-88da-2923e2d31476",
+    "workspaceIdAfter": "01a0518f-fc1a-7663-88da-2923e2d31476",
+    "bookingCountBefore": 3,
+    "bookingCountAfter": 3,
+    "revisionRestarted": "sf-booking-recovery-loop--0000071",
+    "passed": true
+  },
+  "liveVerifier": {
+    "passed": true,
+    "writeBurst": {
+      "accepted": 12,
+      "limited": 28
+    },
+    "readBurst": {
+      "accepted": 40,
+      "limited": 120
+    },
+    "oldResetTokenStatuses": {
+      "count": 24,
+      "status": 404
+    },
+    "consoleErrors": 0
+  },
+  "lighthouse": {
+    "performance": 100,
+    "accessibility": 100,
+    "bestPractices": 100,
+    "seo": 100,
+    "firstContentfulPaintMs": 1311,
+    "largestContentfulPaintMs": 1701,
+    "cumulativeLayoutShift": 0,
+    "totalBlockingTimeMs": 24,
+    "transferBytes": 156742
+  }
+}
