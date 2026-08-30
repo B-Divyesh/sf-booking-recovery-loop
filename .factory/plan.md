@@ -130,7 +130,7 @@ lost.
 - **API, worker, and store:** Rust 2021, axum, tokio, sqlx, and SQLite. One
   service image runs the HTTP API and supervised worker loop. Customer records,
   scheduled work, demo workspaces, rate windows, and migration history share
-  `/data/booking-recovery-loop.sqlite3` in rollback-journal mode. Production is pinned to
+  `/data/state/booking-recovery-loop.sqlite3` in rollback-journal mode. Production is pinned to
   one replica so there is one writer and one durable state boundary.
 - **Runtime contract:** With only `PORT`, the container creates its database
   and generated contact-encryption key under `/data`. A durable factory volume

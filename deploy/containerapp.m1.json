@@ -7,7 +7,7 @@
   },
   "database": {
     "engine": "sqlite",
-    "path": "/data/booking-recovery-loop.sqlite3",
+    "path": "/data/state/booking-recovery-loop.sqlite3",
     "journalMode": "DELETE",
     "backup": "durable /data volume plus encrypted owner export"
   },
@@ -17,6 +17,7 @@
   },
   "environment": {
     "PORT": "8080",
+    "BOOKING_DATA_DIR": "/data/state",
     "PUBLIC_BASE_URL": "https://booking-recovery-loop.sociobot.in",
     "SOCIOBOT_BILLING_BASE_URL": "https://api.sociobot.in/api/v1",
     "SOCIOBOT_BOOKING_PRODUCT_SLUG": "booking-recovery-loop-deposit",

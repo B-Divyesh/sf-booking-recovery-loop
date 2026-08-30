@@ -18,7 +18,7 @@ jq -e '
   .containerPort == 8080 and
   .deploy.data_dir == "/data" and
   .database.engine == "sqlite" and
-  .database.path == "/data/booking-recovery-loop.sqlite3" and
+  .database.path == "/data/state/booking-recovery-loop.sqlite3" and
   .scale.minReplicas == 1 and
   .scale.maxReplicas == 1
 ' "$CONFIG" >/dev/null || {

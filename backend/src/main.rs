@@ -403,10 +403,9 @@ async fn open_runtime_database_with_policy(
     let mut last_error = "SQLite initialization was not attempted".to_owned();
 
     for attempt in 1..=attempts {
-        // Azure Files is a network filesystem, so SQLite's rollback journal is
-        // used instead of WAL. One application replica and SQLite's own locks
-        // serialize writes; opening extra pool connections does not re-run a
-        // journal-mode pragma while requests are in flight.
+        // Azure Files is a network filesystem, so SQLite's default rollback
+        // journal is retained. One connection and one application replica
+        // serialize writes without a WAL or journal-mode transition.
         let sqlite_options = SqliteConnectOptions::new()
             .filename(sqlite_path)
             .create_if_missing(true)
@@ -432,27 +431,6 @@ async fn open_runtime_database_with_policy(
             }
         };
 
-        let journal_mode = sqlx::query_scalar::<_, String>("PRAGMA journal_mode = DELETE")
-            .fetch_one(&pool)
-            .await;
-        if let Err(error) = journal_mode {
-            last_error = error.to_string();
-            pool.close().await;
-            if attempt < attempts && is_transient_sqlite_lock(&last_error) {
-                warn!(attempt, "SQLite journal is busy during startup; retrying");
-                tokio::time::sleep(retry_delay).await;
-                continue;
-            }
-            return Err(last_error);
-        }
-        if !journal_mode
-            .expect("the successful journal query has a value")
-            .eq_ignore_ascii_case("delete")
-        {
-            pool.close().await;
-            return Err("SQLite did not enable its mounted-filesystem journal mode".to_owned());
-        }
-
         match migrations::up(&pool).await {
             Ok(()) => return Ok(pool),
             Err(error) => {
@@ -461,6 +439,7 @@ async fn open_runtime_database_with_policy(
                 if attempt < attempts && is_transient_sqlite_lock(&last_error) {
                     warn!(
                         attempt,
+                        error = %last_error,
                         "SQLite migrations are busy during startup; retrying"
                     );
                     tokio::time::sleep(retry_delay).await;
@@ -486,7 +465,9 @@ async fn open_runtime_database(sqlite_path: &std::path::Path) -> Result<SqlitePo
 
 async fn prepare_data_dir() -> (PathBuf, &'static str) {
     let supplied = env::var_os("BOOKING_DATA_DIR").map(PathBuf::from);
-    let requested = supplied.clone().unwrap_or_else(|| PathBuf::from("/data"));
+    let requested = supplied
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("/data/state"));
     if tokio::fs::create_dir_all(&requested).await.is_ok() {
         return (
             requested,
@@ -673,12 +654,13 @@ async fn shutdown_signal() {
 mod tests {
     #[test]
     fn production_state_paths_are_both_under_data() {
-        let (sqlite_path, key_path) = super::runtime_storage_paths(std::path::Path::new("/data"));
+        let (sqlite_path, key_path) =
+            super::runtime_storage_paths(std::path::Path::new("/data/state"));
         assert_eq!(
             sqlite_path,
-            std::path::Path::new("/data/booking-recovery-loop.sqlite3")
+            std::path::Path::new("/data/state/booking-recovery-loop.sqlite3")
         );
-        assert_eq!(key_path, std::path::Path::new("/data/contact.key"));
+        assert_eq!(key_path, std::path::Path::new("/data/state/contact.key"));
     }
 
     #[tokio::test]
@@ -694,8 +676,7 @@ mod tests {
 
         let options = super::SqliteConnectOptions::new()
             .filename(&sqlite_path)
-            .create_if_missing(true)
-            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+            .create_if_missing(true);
         let first = super::SqlitePoolOptions::new()
             .max_connections(2)
             .connect_with(options.clone())

@@ -32,7 +32,7 @@ if (config.scale?.minReplicas !== 1 || config.scale?.maxReplicas !== 1) {
 }
 if (
   config.database?.engine !== "sqlite" ||
-  config.database?.path !== "/data/booking-recovery-loop.sqlite3" ||
+  config.database?.path !== "/data/state/booking-recovery-loop.sqlite3" ||
   config.database?.journalMode !== "DELETE"
 ) {
   throw new Error("Production must use the mounted-filesystem-safe SQLite file under /data.");
@@ -61,8 +61,8 @@ if (!dockerfile.includes("COPY backend/sqlx-sqlite-only ./sqlx-sqlite-only")) {
 if (!runtimeSource.includes(".max_connections(1)")) {
   throw new Error("Mounted SQLite must use one in-process connection to avoid competing file locks.");
 }
-if (!runtimeSource.includes('"PRAGMA journal_mode = DELETE"')) {
-  throw new Error("Mounted SQLite must use a network-filesystem-safe rollback journal.");
+if (runtimeSource.includes("SqliteJournalMode::Wal")) {
+  throw new Error("Mounted SQLite must not enable WAL on the network filesystem.");
 }
 
 // Regression for repair 12: the old wrapper patched a volume that referred to
