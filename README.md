@@ -39,7 +39,7 @@ cargo run --manifest-path backend/Cargo.toml
 Open `http://127.0.0.1:8080`.
 
 With no storage environment variable, the service creates
-`/data/booking-recovery-loop.sqlite3` in WAL mode and `/data/contact.key` on
+`/data/booking-recovery-loop.sqlite3` in rollback-journal mode and `/data/contact.key` on
 first boot. Set `BOOKING_DATA_DIR` only for local development on a host where
 `/data` is unavailable. The production contract pins one replica and mounts a
 durable volume at `/data`; it is recorded in `deploy/containerapp.m1.json`.

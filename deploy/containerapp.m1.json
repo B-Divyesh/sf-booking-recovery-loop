@@ -8,7 +8,7 @@
   "database": {
     "engine": "sqlite",
     "path": "/data/booking-recovery-loop.sqlite3",
-    "journalMode": "WAL",
+    "journalMode": "DELETE",
     "backup": "durable /data volume plus encrypted owner export"
   },
   "scale": {

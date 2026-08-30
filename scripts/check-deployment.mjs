@@ -32,9 +32,9 @@ if (config.scale?.minReplicas !== 1 || config.scale?.maxReplicas !== 1) {
 if (
   config.database?.engine !== "sqlite" ||
   config.database?.path !== "/data/booking-recovery-loop.sqlite3" ||
-  config.database?.journalMode !== "WAL"
+  config.database?.journalMode !== "DELETE"
 ) {
-  throw new Error("Production must use the WAL-enabled SQLite file under /data.");
+  throw new Error("Production must use the mounted-filesystem-safe SQLite file under /data.");
 }
 if (!config.database?.backup) {
   throw new Error("Production needs a backup and restore plan.");

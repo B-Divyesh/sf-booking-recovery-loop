@@ -28,7 +28,7 @@ use tower_http::{
     set_header::SetResponseHeaderLayer,
     trace::TraceLayer,
 };
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 const GENERAL_BURST: u32 = 40;
@@ -386,6 +386,102 @@ fn runtime_storage_paths(data_dir: &std::path::Path) -> (PathBuf, PathBuf) {
     )
 }
 
+fn is_transient_sqlite_lock(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("database is locked")
+        || message.contains("database table is locked")
+        || message.contains("database is busy")
+        || message.contains("code: 5")
+}
+
+async fn open_runtime_database_with_policy(
+    sqlite_path: &std::path::Path,
+    attempts: u32,
+    busy_timeout: Duration,
+    retry_delay: Duration,
+) -> Result<SqlitePool, String> {
+    let mut last_error = "SQLite initialization was not attempted".to_owned();
+
+    for attempt in 1..=attempts {
+        // Azure Files is a network filesystem, so SQLite's rollback journal is
+        // used instead of WAL. One application replica and SQLite's own locks
+        // serialize writes; opening extra pool connections does not re-run a
+        // journal-mode pragma while requests are in flight.
+        let sqlite_options = SqliteConnectOptions::new()
+            .filename(sqlite_path)
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .synchronous(SqliteSynchronous::Normal)
+            .busy_timeout(busy_timeout);
+        let pool = match SqlitePoolOptions::new()
+            .max_connections(8)
+            .connect_with(sqlite_options)
+            .await
+        {
+            Ok(pool) => pool,
+            Err(error) => {
+                last_error = error.to_string();
+                if attempt < attempts && is_transient_sqlite_lock(&last_error) {
+                    warn!(attempt, "SQLite file is busy during startup; retrying");
+                    tokio::time::sleep(retry_delay).await;
+                    continue;
+                }
+                return Err(last_error);
+            }
+        };
+
+        let journal_mode = sqlx::query_scalar::<_, String>("PRAGMA journal_mode = DELETE")
+            .fetch_one(&pool)
+            .await;
+        if let Err(error) = journal_mode {
+            last_error = error.to_string();
+            pool.close().await;
+            if attempt < attempts && is_transient_sqlite_lock(&last_error) {
+                warn!(attempt, "SQLite journal is busy during startup; retrying");
+                tokio::time::sleep(retry_delay).await;
+                continue;
+            }
+            return Err(last_error);
+        }
+        if !journal_mode
+            .expect("the successful journal query has a value")
+            .eq_ignore_ascii_case("delete")
+        {
+            pool.close().await;
+            return Err("SQLite did not enable its mounted-filesystem journal mode".to_owned());
+        }
+
+        match migrations::up(&pool).await {
+            Ok(()) => return Ok(pool),
+            Err(error) => {
+                last_error = error.to_string();
+                pool.close().await;
+                if attempt < attempts && is_transient_sqlite_lock(&last_error) {
+                    warn!(
+                        attempt,
+                        "SQLite migrations are busy during startup; retrying"
+                    );
+                    tokio::time::sleep(retry_delay).await;
+                    continue;
+                }
+                return Err(last_error);
+            }
+        }
+    }
+
+    Err(last_error)
+}
+
+async fn open_runtime_database(sqlite_path: &std::path::Path) -> Result<SqlitePool, String> {
+    open_runtime_database_with_policy(
+        sqlite_path,
+        30,
+        Duration::from_secs(2),
+        Duration::from_secs(1),
+    )
+    .await
+}
+
 async fn prepare_data_dir() -> (PathBuf, &'static str) {
     let supplied = env::var_os("BOOKING_DATA_DIR").map(PathBuf::from);
     let requested = supplied.clone().unwrap_or_else(|| PathBuf::from("/data"));
@@ -440,21 +536,9 @@ async fn main() {
     });
     let (data_dir, data_source) = prepare_data_dir().await;
     let (sqlite_path, key_path) = runtime_storage_paths(&data_dir);
-    let sqlite_options = SqliteConnectOptions::new()
-        .filename(&sqlite_path)
-        .create_if_missing(true)
-        .foreign_keys(true)
-        .journal_mode(SqliteJournalMode::Wal)
-        .synchronous(SqliteSynchronous::Normal)
-        .busy_timeout(Duration::from_secs(5));
-    let pool = SqlitePoolOptions::new()
-        .max_connections(8)
-        .connect_with(sqlite_options)
+    let pool = open_runtime_database(&sqlite_path)
         .await
-        .expect("the durable SQLite file must open");
-    migrations::up(&pool)
-        .await
-        .expect("the SQLite migration must apply");
+        .expect("the durable SQLite file must open and migrate");
 
     let (encryption_key, key_source) = load_key_from_environment_or_file(&key_path).await;
     let address = SocketAddr::from(([0, 0, 0, 0], port));
@@ -642,6 +726,56 @@ mod tests {
         .unwrap();
         assert_eq!(hits, 7, "state in the data directory must survive restart");
         second.close().await;
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn mounted_sqlite_startup_waits_for_a_transient_file_lock() {
+        let root = std::env::temp_dir().join(format!(
+            "booking-recovery-loop-locked-start-{}",
+            uuid::Uuid::now_v7()
+        ));
+        let data_dir = root.join("data");
+        tokio::fs::create_dir_all(&data_dir).await.unwrap();
+        let (sqlite_path, _) = super::runtime_storage_paths(&data_dir);
+
+        let locking_pool = super::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                super::SqliteConnectOptions::new()
+                    .filename(&sqlite_path)
+                    .create_if_missing(true),
+            )
+            .await
+            .unwrap();
+        crate::migrations::up(&locking_pool).await.unwrap();
+        let mut lock = locking_pool.acquire().await.unwrap();
+        sqlx::query("BEGIN EXCLUSIVE")
+            .execute(&mut *lock)
+            .await
+            .unwrap();
+
+        let release_lock = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+            sqlx::query("ROLLBACK").execute(&mut *lock).await.unwrap();
+        });
+        let reopened = super::open_runtime_database_with_policy(
+            &sqlite_path,
+            20,
+            std::time::Duration::from_millis(20),
+            std::time::Duration::from_millis(10),
+        )
+        .await
+        .expect("startup must recover after the previous file lock is released");
+        release_lock.await.unwrap();
+
+        let journal_mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+            .fetch_one(&reopened)
+            .await
+            .unwrap();
+        assert_eq!(journal_mode, "delete");
+        reopened.close().await;
+        locking_pool.close().await;
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
 }
