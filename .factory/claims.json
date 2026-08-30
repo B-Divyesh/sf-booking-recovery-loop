@@ -14,11 +14,25 @@
     "sandbox": "Generates and parses a token, decodes 32 random bytes, checks the exact 24-hour TTL, and rejects an expired token."
   },
   {
+    "id": "sqlite-restart-persistence",
+    "claim": "The mounted SQLite file keeps a demo workspace across a service restart.",
+    "where": "README deployment section",
+    "test": "cargo test --manifest-path backend/Cargo.toml demo_workspace_survives_sqlite_restart_in_data_directory",
+    "sandbox": "Creates a workspace in a temporary data/booking-recovery-loop.sqlite3 file, closes the first pool, opens a new pool, and reads the same workspace and ID with its original token."
+  },
+  {
     "id": "forwarded-rate-limit",
     "claim": "Demo writes allow 12 immediate requests per first forwarded client IP, then return a retry time of at least one second.",
     "where": "Terms and API response headers",
     "test": "cargo test --manifest-path backend/Cargo.toml durable_write_limit_allows_only_twelve_of_forty_independent_writes",
-    "sandbox": "Four independent API routers use one durable SQLite file. Forty simultaneous writes from one X-Forwarded-For address yield exactly 12 created workspaces and 28 responses with 429, X-RateLimit-Limit 12, and Retry-After 60."
+    "sandbox": "Four independent request handles use one serving process and durable SQLite file. Forty simultaneous writes from one X-Forwarded-For address yield exactly 12 created workspaces and 28 responses with 429, X-RateLimit-Limit 12, and Retry-After 60."
+  },
+  {
+    "id": "forwarded-read-rate-limit",
+    "claim": "API reads allow a burst of 40 requests per first forwarded client IP, then return a retry time of at least one second.",
+    "where": "Terms and API response headers",
+    "test": "cargo test --manifest-path backend/Cargo.toml durable_read_limit_allows_only_forty_of_one_hundred_sixty_independent_reads",
+    "sandbox": "One serving process receives 160 simultaneous reads through independent request tasks. Exactly 40 return the workspace and 120 return 429 with X-RateLimit-Limit 40 and a positive Retry-After."
   },
   {
     "id": "demo-no-account-payment",
@@ -32,7 +46,7 @@
     "claim": "Reset demo starts a fresh set of sample bookings.",
     "where": "Demo banner",
     "test": "cargo test --manifest-path backend/Cargo.toml reset_revokes_old_token_across_independent_connections",
-    "sandbox": "Four independent API routers use one durable SQLite file. After reset rotates a fresh sample token, 24 simultaneous old-token reads distributed across every connection all return 404."
+    "sandbox": "Four independent request handles use one serving process and durable SQLite file. After reset rotates a fresh sample token, 24 simultaneous old-token reads distributed across every handle all return 404."
   },
   {
     "id": "consent-gates-recovery",

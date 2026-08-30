@@ -1,9 +1,19 @@
-import { chromium } from "@playwright/test";
+import { chromium, request } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 
 const baseURL = process.argv[2] ?? "https://booking-recovery-loop.sociobot.in";
 const evidenceDir = process.argv[3] ?? ".factory/evidence/polish-1-live";
 await mkdir(evidenceDir, { recursive: true });
+
+async function independentRequest(method, url, options = {}) {
+  const client = await request.newContext();
+  try {
+    const response = await client.fetch(url, { method, ...options });
+    return { status: response.status(), headers: response.headers() };
+  } finally {
+    await client.dispose();
+  }
+}
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -67,20 +77,20 @@ for (let i = 0; i < 13; i += 1) {
 checks.rateLimit = { client: rateClient, statuses: rateStatuses, retryAfter };
 checks.rateLimitPassed = rateStatuses.slice(0, 12).every((status) => status === 201) && rateStatuses[12] === 429 && Number(retryAfter[12]) >= 1;
 const concurrentRateClient = `203.0.113.${(Date.now() % 200) + 20}`;
-const concurrentRateResponses = await Promise.all(Array.from({ length: 40 }, (_, index) => context.request.post(`${baseURL}/api/v1/demo/workspaces`, {
+const concurrentRateResponses = await Promise.all(Array.from({ length: 40 }, (_, index) => independentRequest("POST", `${baseURL}/api/v1/demo/workspaces`, {
   headers: {
     "X-Forwarded-For": concurrentRateClient,
     "Idempotency-Key": `live-concurrent-rate-${Date.now()}-${index}`
   }
 })));
-const concurrentStatuses = concurrentRateResponses.map((response) => response.status());
-const concurrentLimited = concurrentRateResponses.filter((response) => response.status() === 429);
+const concurrentStatuses = concurrentRateResponses.map((response) => response.status);
+const concurrentLimited = concurrentRateResponses.filter((response) => response.status === 429);
 checks.concurrentRateLimit = {
   client: concurrentRateClient,
   created: concurrentStatuses.filter((status) => status === 201).length,
   limited: concurrentLimited.length,
-  retryAfter: concurrentLimited.map((response) => response.headers()["retry-after"] ?? null),
-  limit: concurrentLimited.map((response) => response.headers()["x-ratelimit-limit"] ?? null)
+  retryAfter: concurrentLimited.map((response) => response.headers["retry-after"] ?? null),
+  limit: concurrentLimited.map((response) => response.headers["x-ratelimit-limit"] ?? null)
 };
 checks.concurrentRateLimitPassed = checks.concurrentRateLimit.created === 12
   && checks.concurrentRateLimit.limited === 28
@@ -88,18 +98,36 @@ checks.concurrentRateLimitPassed = checks.concurrentRateLimit.created === 12
   && checks.concurrentRateLimit.limit.every((value) => value === "12");
 
 const oldTokenReadClient = `198.51.100.${(Date.now() % 200) + 20}`;
-const oldTokenResponses = await Promise.all(Array.from({ length: 24 }, () => context.request.get(`${baseURL}/api/v1/demo/workspace`, {
+const oldTokenResponses = await Promise.all(Array.from({ length: 24 }, () => independentRequest("GET", `${baseURL}/api/v1/demo/workspace`, {
   headers: { "X-Forwarded-For": oldTokenReadClient, "X-Demo-Workspace": firstToken }
 })));
 checks.resetRevocation = {
   client: oldTokenReadClient,
-  statuses: oldTokenResponses.map((response) => response.status())
+  statuses: oldTokenResponses.map((response) => response.status)
 };
 checks.resetRevocationPassed = checks.resetRevocation.statuses.every((status) => status === 404);
 
+const readRateClient = `192.0.2.${(Date.now() % 200) + 20}`;
+const readRateResponses = await Promise.all(Array.from({ length: 160 }, () => independentRequest("GET", `${baseURL}/api/v1/demo/workspace`, {
+  headers: { "X-Forwarded-For": readRateClient, "X-Demo-Workspace": secondToken }
+})));
+const readStatuses = readRateResponses.map((response) => response.status);
+const readLimited = readRateResponses.filter((response) => response.status === 429);
+checks.concurrentReadRateLimit = {
+  client: readRateClient,
+  loaded: readStatuses.filter((status) => status === 200).length,
+  limited: readLimited.length,
+  retryAfter: readLimited.map((response) => response.headers["retry-after"] ?? null),
+  limit: readLimited.map((response) => response.headers["x-ratelimit-limit"] ?? null)
+};
+checks.concurrentReadRateLimitPassed = checks.concurrentReadRateLimit.loaded === 40
+  && checks.concurrentReadRateLimit.limited === 120
+  && checks.concurrentReadRateLimit.retryAfter.every((value) => Number(value) >= 1)
+  && checks.concurrentReadRateLimit.limit.every((value) => value === "40");
+
 const integrationResponse = await context.request.get(`${baseURL}/api/v1/integrations/status`);
 checks.integrations = { status: integrationResponse.status(), body: await integrationResponse.json() };
-const passed = checks.homeStatus === 200 && checks.demoTickets === 3 && checks.demoResetRotatedToken && checks.demoSameOrigin && checks.subscriptionCheckoutStatus === 303 && checks.startExplainsIdentity && checks.routes["/not-a-real-place"] === 404 && checks.mobileNoOverflow && checks.rateLimitPassed && checks.concurrentRateLimitPassed && checks.resetRevocationPassed && consoleErrors.length === 0;
+const passed = checks.homeStatus === 200 && checks.demoTickets === 3 && checks.demoResetRotatedToken && checks.demoSameOrigin && checks.subscriptionCheckoutStatus === 303 && checks.startExplainsIdentity && checks.routes["/not-a-real-place"] === 404 && checks.mobileNoOverflow && checks.rateLimitPassed && checks.concurrentRateLimitPassed && checks.concurrentReadRateLimitPassed && checks.resetRevocationPassed && consoleErrors.length === 0;
 await writeFile(`${evidenceDir}/live-check.json`, JSON.stringify({ baseURL, passed, checks }, null, 2));
 await browser.close();
 console.log(JSON.stringify({ passed, checks }, null, 2));

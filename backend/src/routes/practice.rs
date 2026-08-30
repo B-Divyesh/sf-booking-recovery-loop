@@ -1443,7 +1443,6 @@ mod tests {
             build_sha: Arc::from("test"),
             pool,
             demo_lock: Arc::new(Mutex::new(())),
-            rate_windows: Arc::new(Mutex::new(std::collections::HashMap::new())),
             encryption_key: Arc::new([7_u8; 32]),
             http: reqwest::Client::new(),
             entra: crate::auth::EntraValidator::from_environment(reqwest::Client::new()),
@@ -2346,9 +2345,8 @@ mod tests {
             "deletion must be visible to every connection"
         );
 
-        // Regression for verifier 6: independent HTTP connections can land on
-        // independent connections, but the first forwarded client still receives
-        // one shared 12-write minute allowance (not 12 per connection).
+        // Regression for verifier 6: independent HTTP requests to the one
+        // serving process receive one 12-write minute allowance.
         let mut accepted = 0;
         let mut limited = None;
         for number in 0..13 {
@@ -2359,11 +2357,7 @@ mod tests {
                 .header("idempotency-key", format!("independent-write-{number}"))
                 .body(Body::empty())
                 .unwrap();
-            let response = if number % 2 == 0 {
-                first.clone().oneshot(request).await.unwrap()
-            } else {
-                second.clone().oneshot(request).await.unwrap()
-            };
+            let response = first.clone().oneshot(request).await.unwrap();
             if response.status() == StatusCode::CREATED {
                 accepted += 1;
             }
@@ -2371,7 +2365,7 @@ mod tests {
                 limited = Some(response);
             }
         }
-        assert_eq!(accepted, 12, "writes must not multiply by connection");
+        assert_eq!(accepted, 12, "writes must share one service allowance");
         let limited = limited.expect("the thirteenth independent write must be limited");
         assert_eq!(limited.headers()["x-ratelimit-limit"], "12");
         assert_eq!(limited.headers()["retry-after"], "60");

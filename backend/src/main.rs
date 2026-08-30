@@ -2,12 +2,11 @@ mod auth;
 mod migrations;
 mod routes;
 
-use std::{collections::HashMap, env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{
-    extract::{Request, State},
+    extract::State,
     http::{header, HeaderName, HeaderValue, Method, StatusCode},
-    middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
     Router,
@@ -35,24 +34,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 const GENERAL_BURST: u32 = 40;
 const WRITE_BURST: u32 = 12;
 const WRITE_REPLENISH_SECONDS: u64 = 60;
-const READ_REPLENISH_SECONDS: u64 = 60;
-const API_REQUESTS_PER_WINDOW: i32 = 40;
-const WRITE_REQUESTS_PER_MINUTE: i32 = 12;
-const READ_RATE_RESERVATION: i32 = 4;
-
-#[derive(Clone, Copy)]
-pub(crate) struct LocalRateWindow {
-    window_start: i64,
-    remaining: i32,
-    exhausted: bool,
-}
 
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) build_sha: Arc<str>,
     pub(crate) pool: SqlitePool,
     pub(crate) demo_lock: Arc<Mutex<()>>,
-    pub(crate) rate_windows: Arc<Mutex<HashMap<String, LocalRateWindow>>>,
     pub(crate) encryption_key: Arc<[u8; 32]>,
     pub(crate) http: reqwest::Client,
     pub(crate) entra: auth::EntraValidator,
@@ -142,7 +129,6 @@ pub(crate) fn app_router_with_integrations(
         build_sha: build_sha.into(),
         pool,
         demo_lock: Arc::new(Mutex::new(())),
-        rate_windows: Arc::new(Mutex::new(HashMap::new())),
         encryption_key: Arc::new(encryption_key),
         entra: auth::EntraValidator::from_environment(http.clone()),
         integrations: Arc::new(integrations),
@@ -251,10 +237,6 @@ fn app_router_from_state(state: AppState) -> Router {
     let api = practice_read_routes
         .merge(practice_write_routes)
         .nest("/demo", demo_api)
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            durable_api_rate_limit,
-        ))
         .layer(GovernorLayer::new(api_limit.clone()).error_handler(api_limit_error));
 
     Router::new()
@@ -316,165 +298,6 @@ fn app_router_from_state(state: AppState) -> Router {
             MakeRequestUuid,
         ))
         .layer(CompressionLayer::new())
-}
-
-/// The governor above absorbs very short bursts. This durable counter is the
-/// authoritative allowance across independent connections and restarts. It is
-/// deliberately before every versioned API route; only /health is exempt.
-async fn durable_api_rate_limit(
-    State(state): State<AppState>,
-    request: Request,
-    next: Next,
-) -> Response {
-    let client = request
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("unknown");
-    let now = chrono::Utc::now().timestamp();
-    let is_write = request.method() == Method::POST;
-    // Writes deliberately use a minute bucket so independent connections
-    // cannot multiply a 12-write allowance. Reads use the same minute-sized
-    // durable burst window so a 160-connection burst cannot refill while it
-    // is still draining through the application.
-    let (window_start, key, limit, retry_after) = if is_write {
-        (
-            now - now.rem_euclid(WRITE_REPLENISH_SECONDS as i64),
-            format!("write:{client}"),
-            WRITE_REQUESTS_PER_MINUTE,
-            WRITE_REPLENISH_SECONDS.to_string(),
-        )
-    } else {
-        (
-            now - now.rem_euclid(READ_REPLENISH_SECONDS as i64),
-            format!("read:{client}"),
-            API_REQUESTS_PER_WINDOW,
-            READ_REPLENISH_SECONDS.to_string(),
-        )
-    };
-    let local_key = format!("{key}:{window_start}");
-    let reservation = if is_write { 1 } else { READ_RATE_RESERVATION };
-    // A small local reservation turns a large burst into a bounded number of
-    // durable updates rather than one update per request. SQLite grants each
-    // block atomically. This lock covers only quota reservation, never
-    // application work.
-    let allowed = {
-        let mut local_windows = state.rate_windows.lock().await;
-        local_windows.retain(|_, value| value.window_start >= now - 2 * 60);
-        if let Some(window) = local_windows.get_mut(&local_key) {
-            if window.remaining > 0 {
-                window.remaining -= 1;
-                Ok(true)
-            } else if window.exhausted {
-                Ok(false)
-            } else {
-                reserve_rate_block_with_remainder(
-                    &state.pool,
-                    &key,
-                    window_start,
-                    reservation,
-                    limit,
-                )
-                .await
-                .map(|granted| {
-                    *window = LocalRateWindow {
-                        window_start,
-                        remaining: granted.saturating_sub(1),
-                        exhausted: granted == 0,
-                    };
-                    granted > 0
-                })
-            }
-        } else {
-            reserve_rate_block_with_remainder(&state.pool, &key, window_start, reservation, limit)
-                .await
-                .map(|granted| {
-                    local_windows.insert(
-                        local_key,
-                        LocalRateWindow {
-                            window_start,
-                            remaining: granted.saturating_sub(1),
-                            exhausted: granted == 0,
-                        },
-                    );
-                    granted > 0
-                })
-        }
-    };
-    match allowed {
-        Ok(true) => next.run(request).await,
-        Ok(false) => (
-            StatusCode::TOO_MANY_REQUESTS,
-            [
-                (header::RETRY_AFTER, retry_after.as_str()),
-                (
-                    HeaderName::from_static("x-ratelimit-after"),
-                    retry_after.as_str(),
-                ),
-                (
-                    HeaderName::from_static("x-ratelimit-limit"),
-                    if is_write { "12" } else { "40" },
-                ),
-                (HeaderName::from_static("x-ratelimit-remaining"), "0"),
-            ],
-            "Too many requests. Try again after the stated delay.",
-        )
-            .into_response(),
-        // Failing open would permit unlimited deletes when shared storage is
-        // unhealthy. A 503 is safer and tells callers to retry.
-        Err(error) => {
-            tracing::error!(%error, client, "shared API rate limit database update failed");
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                [(header::RETRY_AFTER, "1")],
-                "Request protection is temporarily unavailable. Try again shortly.",
-            )
-                .into_response()
-        }
-    }
-}
-
-async fn reserve_rate_block(
-    pool: &SqlitePool,
-    key: &str,
-    window_start: i64,
-    reservation: i32,
-    limit: i32,
-) -> Result<i32, sqlx::Error> {
-    sqlx::query_scalar::<_, i32>(
-        "INSERT INTO api_rate_windows (client_key, window_start, hits) VALUES ($1, $2, $3) \
-         ON CONFLICT (client_key, window_start) DO UPDATE SET hits = api_rate_windows.hits + $3 \
-         WHERE api_rate_windows.hits <= $4 \
-         RETURNING hits",
-    )
-    .bind(key)
-    .bind(window_start)
-    .bind(reservation)
-    .bind(limit - reservation)
-    .fetch_optional(pool)
-    .await
-    .map(|hits| hits.map(|_| reservation).unwrap_or_default())
-}
-
-async fn reserve_rate_block_with_remainder(
-    pool: &SqlitePool,
-    key: &str,
-    window_start: i64,
-    reservation: i32,
-    limit: i32,
-) -> Result<i32, sqlx::Error> {
-    let granted = reserve_rate_block(pool, key, window_start, reservation, limit).await?;
-    // A smaller final remainder remains available if deployment topology or
-    // traffic order leaves fewer than a complete block. Writes already reserve
-    // one and skip this path.
-    if granted == 0 && reservation > 1 {
-        reserve_rate_block(pool, key, window_start, 1, limit).await
-    } else {
-        Ok(granted)
-    }
 }
 
 fn api_limit_error(error: GovernorError) -> Response {
@@ -667,7 +490,6 @@ async fn main() {
         build_sha: Arc::from(build_sha),
         pool,
         demo_lock: Arc::new(Mutex::new(())),
-        rate_windows: Arc::new(Mutex::new(HashMap::new())),
         encryption_key: Arc::new(encryption_key),
         entra: auth::EntraValidator::from_environment(http.clone()),
         http,

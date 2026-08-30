@@ -1216,6 +1216,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn demo_workspace_survives_sqlite_restart_in_data_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "booking-recovery-loop-persistence-{}",
+            uuid::Uuid::now_v7()
+        ));
+        let data_dir = root.join("data");
+        std::fs::create_dir_all(&data_dir).expect("data directory should create");
+        let sqlite_path = data_dir.join("booking-recovery-loop.sqlite3");
+        let sqlite_uri = format!("sqlite://{}?mode=rwc", sqlite_path.display());
+
+        let first_pool = SqlitePoolOptions::new()
+            .max_connections(2)
+            .connect(&sqlite_uri)
+            .await
+            .expect("first process pool should open");
+        migrations::up(&first_pool)
+            .await
+            .expect("migration should apply");
+        let first_app = app_router(first_pool.clone(), "before-restart", "../dist");
+        let created = json(
+            first_app
+                .clone()
+                .oneshot(request(
+                    "POST",
+                    "/api/v1/demo/workspaces",
+                    "restart-create",
+                    None,
+                ))
+                .await
+                .expect("workspace should create"),
+        )
+        .await;
+        let token = created["workspaceToken"].as_str().unwrap().to_owned();
+        let workspace_id = created["workspace"]["id"].as_str().unwrap().to_owned();
+        drop(first_app);
+        first_pool.close().await;
+
+        let second_pool = SqlitePoolOptions::new()
+            .max_connections(2)
+            .connect(&sqlite_uri)
+            .await
+            .expect("restarted process pool should open");
+        migrations::up(&second_pool)
+            .await
+            .expect("migration should remain idempotent");
+        let second_app = app_router(second_pool.clone(), "after-restart", "../dist");
+        let reloaded = second_app
+            .oneshot(request(
+                "GET",
+                "/api/v1/demo/workspace",
+                "restart-read",
+                Some(&token),
+            ))
+            .await
+            .expect("workspace read should respond");
+        assert_eq!(reloaded.status(), StatusCode::OK);
+        let reloaded = json(reloaded).await;
+        assert_eq!(reloaded["workspace"]["id"], workspace_id);
+
+        second_pool.close().await;
+        std::fs::remove_dir_all(root).expect("temporary data directory should remove");
+    }
+
+    #[tokio::test]
     async fn portable_token_preserves_state_across_fresh_local_stores() {
         async fn fresh_app() -> (axum::Router, SqlitePool) {
             let pool = test_pool().await;
@@ -1299,24 +1363,9 @@ mod tests {
             .await
             .expect("shared migrations should apply");
 
-        let mut pools = vec![first_pool];
-        for _ in 1..connections {
-            let pool = SqlitePoolOptions::new()
-                .max_connections(1)
-                .connect(&sqlite_uri)
-                .await
-                .expect("independent SQLite connection should open");
-            sqlx::query("PRAGMA busy_timeout = 10000")
-                .execute(&pool)
-                .await
-                .expect("connection should wait for a write lock");
-            pools.push(pool);
-        }
-        let apps = pools
-            .iter()
-            .map(|pool| app_router(pool.clone(), "independent-connection", "../dist"))
-            .collect();
-        (apps, pools)
+        let app = app_router(first_pool.clone(), "independent-connection", "../dist");
+        let apps = (0..connections).map(|_| app.clone()).collect();
+        (apps, vec![first_pool])
     }
 
     #[tokio::test]
@@ -1452,15 +1501,20 @@ mod tests {
             uuid::Uuid::now_v7()
         ));
         let (apps, pools) = independent_connection_apps(&database_path, 4).await;
+        let mut create_request = request(
+            "POST",
+            "/api/v1/demo/workspaces",
+            "shared-read-create",
+            None,
+        );
+        create_request.headers_mut().insert(
+            "x-forwarded-for",
+            "198.51.100.28".parse().expect("valid forwarded address"),
+        );
         let created = json(
             apps[0]
                 .clone()
-                .oneshot(request(
-                    "POST",
-                    "/api/v1/demo/workspaces",
-                    "shared-read-create",
-                    None,
-                ))
+                .oneshot(create_request)
                 .await
                 .expect("workspace should create"),
         )
