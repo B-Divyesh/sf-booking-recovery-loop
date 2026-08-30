@@ -64,6 +64,9 @@ if (!runtimeSource.includes(".max_connections(1)")) {
 if (runtimeSource.includes("SqliteJournalMode::Wal")) {
   throw new Error("Mounted SQLite must not enable WAL on the network filesystem.");
 }
+if (!runtimeSource.includes('format!("file:{sqlite_path}?nolock=1")')) {
+  throw new Error("One-replica mounted SQLite must disable unsupported network file locking.");
+}
 
 // Regression for repair 12: the old wrapper patched a volume that referred to
 // a missing environment storage and Azure rejected the release with

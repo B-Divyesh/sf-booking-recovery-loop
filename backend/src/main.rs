@@ -401,13 +401,20 @@ async fn open_runtime_database_with_policy(
     retry_delay: Duration,
 ) -> Result<SqlitePool, String> {
     let mut last_error = "SQLite initialization was not attempted".to_owned();
+    let sqlite_path = sqlite_path
+        .to_str()
+        .ok_or_else(|| "the SQLite path must be valid UTF-8".to_owned())?;
+    if sqlite_path.contains(['?', '#']) {
+        return Err("the SQLite path contains unsupported URI characters".to_owned());
+    }
+    let sqlite_uri = format!("file:{sqlite_path}?nolock=1");
 
     for attempt in 1..=attempts {
         // Azure Files is a network filesystem, so SQLite's default rollback
-        // journal is retained. One connection and one application replica
-        // serialize writes without a WAL or journal-mode transition.
+        // journal and documented nolock URI mode are used. The deployment and
+        // pool are both pinned to one, so no second writer can exist.
         let sqlite_options = SqliteConnectOptions::new()
-            .filename(sqlite_path)
+            .filename(&sqlite_uri)
             .create_if_missing(true)
             .foreign_keys(true)
             .synchronous(SqliteSynchronous::Normal)
@@ -713,7 +720,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mounted_sqlite_startup_waits_for_a_transient_file_lock() {
+    async fn mounted_sqlite_startup_avoids_unsupported_network_file_locks() {
         let root = std::env::temp_dir().join(format!(
             "booking-recovery-loop-locked-start-{}",
             uuid::Uuid::now_v7()
@@ -738,19 +745,14 @@ mod tests {
             .await
             .unwrap();
 
-        let release_lock = tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
-            sqlx::query("ROLLBACK").execute(&mut *lock).await.unwrap();
-        });
         let reopened = super::open_runtime_database_with_policy(
             &sqlite_path,
-            20,
+            2,
             std::time::Duration::from_millis(20),
             std::time::Duration::from_millis(10),
         )
         .await
-        .expect("startup must recover after the previous file lock is released");
-        release_lock.await.unwrap();
+        .expect("the one-process mounted database must not depend on network file locks");
 
         let journal_mode: String = sqlx::query_scalar("PRAGMA journal_mode")
             .fetch_one(&reopened)
@@ -758,6 +760,8 @@ mod tests {
             .unwrap();
         assert_eq!(journal_mode, "delete");
         reopened.close().await;
+        sqlx::query("ROLLBACK").execute(&mut *lock).await.unwrap();
+        drop(lock);
         locking_pool.close().await;
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
