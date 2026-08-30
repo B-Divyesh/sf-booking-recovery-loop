@@ -13,7 +13,7 @@ use axum::{
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteSynchronous},
     SqlitePool,
 };
 use tokio::{signal, sync::Mutex};
@@ -693,7 +693,7 @@ mod tests {
         let options = super::SqliteConnectOptions::new()
             .filename(&sqlite_path)
             .create_if_missing(true)
-            .journal_mode(super::SqliteJournalMode::Wal);
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
         let first = super::SqlitePoolOptions::new()
             .max_connections(2)
             .connect_with(options.clone())
