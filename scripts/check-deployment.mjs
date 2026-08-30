@@ -11,6 +11,7 @@ const contractPath = new URL("../deploy/containerapp.m1.json", import.meta.url);
 const config = JSON.parse(await readFile(contractPath, "utf8"));
 const dockerfile = await readFile(new URL("../Dockerfile", import.meta.url), "utf8");
 const cargoManifest = await readFile(new URL("../backend/Cargo.toml", import.meta.url), "utf8");
+const runtimeSource = await readFile(new URL("../backend/src/main.rs", import.meta.url), "utf8");
 const deployScriptUrl = new URL("./deploy-container.sh", import.meta.url);
 const deployScript = await readFile(deployScriptUrl, "utf8");
 
@@ -56,6 +57,12 @@ if (!cargoManifest.includes('sqlx = { path = "sqlx-sqlite-only" }')) {
 }
 if (!dockerfile.includes("COPY backend/sqlx-sqlite-only ./sqlx-sqlite-only")) {
   throw new Error("The production image must copy the SQLite-only facade before building.");
+}
+if (!runtimeSource.includes(".max_connections(1)")) {
+  throw new Error("Mounted SQLite must use one in-process connection to avoid competing file locks.");
+}
+if (!runtimeSource.includes('"PRAGMA journal_mode = DELETE"')) {
+  throw new Error("Mounted SQLite must use a network-filesystem-safe rollback journal.");
 }
 
 // Regression for repair 12: the old wrapper patched a volume that referred to

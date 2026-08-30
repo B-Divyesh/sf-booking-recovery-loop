@@ -414,7 +414,9 @@ async fn open_runtime_database_with_policy(
             .synchronous(SqliteSynchronous::Normal)
             .busy_timeout(busy_timeout);
         let pool = match SqlitePoolOptions::new()
-            .max_connections(8)
+            // A single connection matches the one-replica deployment and
+            // avoids competing file locks inside the mounted filesystem.
+            .max_connections(1)
             .connect_with(sqlite_options)
             .await
         {
