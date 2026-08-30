@@ -163,7 +163,7 @@ Counts include visible headings, labels, and buttons. No landing or README item 
 | 11 | Each statement above has one named test in `.factory/claims.json`. | F-2-3 |
 | 8 | Requirements: Node 22+, npm, and current stable Rust. | Clear instruction |
 | 7 | Open `http://127.0.0.1:8080`. | Clear instruction |
-| 12 | Optional settings are `PORT`, `DATABASE_URL`, `STATIC_DIR`, and `CONTACT_KEY_FILE`. | Clear reference |
+| 12 | Optional settings are `PORT`, `legacy database setting`, `STATIC_DIR`, and `CONTACT_KEY_FILE`. | Clear reference |
 | 17 | With no settings, the container creates its SQLite database and encryption key under its writable data directory. | Clear deployment behaviour |
 | 8 | Playwright starts the complete Rust and Vite build. | Clear verification behaviour |
 | 14 | It checks each browser claim plus keyboard, route, mobile, offline, privacy, and axe coverage. | Jargon: replace “axe” with “accessibility” |

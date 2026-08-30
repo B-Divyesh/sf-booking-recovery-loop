@@ -31,14 +31,14 @@ cannot read it. Expired demo workspaces are rejected immediately and purged by
 the service's 30-second worker, so cleanup never delays the first sample
 response.
 
-Factory ingress may send requests to different container replicas. Production
-uses the shared PostgreSQL store declared in `deploy/containerapp.m1.json`, so
-each replica resolves the same token hash and workspace. A reset expires that
-workspace in the shared store; every later old-token read returns `404`.
-Portable-token hydration exists only for a local, intentionally isolated demo
-database and can recreate only the fixed fictional seed. The token never
-identifies or authorizes a real workspace. The exact cross-replica reset and
-rate-limit regressions run against four routers sharing one durable store.
+Production runs one container replica. Its token hash, workspace, reset marker,
+and active rate windows live in the SQLite file mounted under `/data`. A reset
+expires that workspace transactionally; every later old-token read returns
+`404`, including after a process restart. Portable-token hydration exists only
+for an intentionally isolated demo database and can recreate only the fixed
+fictional seed. The token never identifies or authorizes a real workspace. The
+exact reset and independent-connection rate-limit regressions use multiple
+routers connected to one durable SQLite file.
 
 The demo uses dedicated SQLite tables and routes. Real practice records use
 separate tables, owner tokens, and encrypted contact fields. Migration

@@ -13,7 +13,10 @@ use axum::{
     Router,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use sqlx::{any::AnyPoolOptions, AnyPool};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+    SqlitePool,
+};
 use tokio::{signal, sync::Mutex};
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorError,
@@ -33,8 +36,8 @@ const GENERAL_BURST: u32 = 40;
 const WRITE_BURST: u32 = 12;
 const WRITE_REPLENISH_SECONDS: u64 = 60;
 const READ_REPLENISH_SECONDS: u64 = 60;
-const SHARED_API_REQUESTS_PER_SECOND: i32 = 40;
-const SHARED_WRITE_REQUESTS_PER_MINUTE: i32 = 12;
+const API_REQUESTS_PER_WINDOW: i32 = 40;
+const WRITE_REQUESTS_PER_MINUTE: i32 = 12;
 const READ_RATE_RESERVATION: i32 = 4;
 
 #[derive(Clone, Copy)]
@@ -44,29 +47,10 @@ pub(crate) struct LocalRateWindow {
     exhausted: bool,
 }
 
-fn database_pool_max_connections(database_url: &str) -> u32 {
-    // The factory's shared PgBouncer session pool has a 15-client ceiling
-    // shared with release work and operational connections. Three serving
-    // replicas therefore get two connections each, leaving enough headroom
-    // that a valid global limiter burst cannot turn into EMAXCONNSESSION 503s.
-    if database_url.starts_with("sqlite:") {
-        1
-    } else {
-        2
-    }
-}
-
-fn postgres_schema_setup_statements() -> [&'static str; 2] {
-    [
-        "CREATE SCHEMA IF NOT EXISTS booking_recovery_loop",
-        "SET search_path TO booking_recovery_loop, public",
-    ]
-}
-
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) build_sha: Arc<str>,
-    pub(crate) pool: AnyPool,
+    pub(crate) pool: SqlitePool,
     pub(crate) demo_lock: Arc<Mutex<()>>,
     pub(crate) rate_windows: Arc<Mutex<HashMap<String, LocalRateWindow>>>,
     pub(crate) encryption_key: Arc<[u8; 32]>,
@@ -119,7 +103,7 @@ impl IntegrationConfig {
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn app_router(
-    pool: AnyPool,
+    pool: SqlitePool,
     build_sha: impl Into<Arc<str>>,
     static_dir: impl Into<PathBuf>,
 ) -> Router {
@@ -127,7 +111,7 @@ pub(crate) fn app_router(
 }
 
 pub(crate) fn app_router_with_key(
-    pool: AnyPool,
+    pool: SqlitePool,
     build_sha: impl Into<Arc<str>>,
     static_dir: impl Into<PathBuf>,
     encryption_key: [u8; 32],
@@ -142,7 +126,7 @@ pub(crate) fn app_router_with_key(
 }
 
 pub(crate) fn app_router_with_integrations(
-    pool: AnyPool,
+    pool: SqlitePool,
     build_sha: impl Into<Arc<str>>,
     static_dir: impl Into<PathBuf>,
     encryption_key: [u8; 32],
@@ -269,7 +253,7 @@ fn app_router_from_state(state: AppState) -> Router {
         .nest("/demo", demo_api)
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            shared_api_rate_limit,
+            durable_api_rate_limit,
         ))
         .layer(GovernorLayer::new(api_limit.clone()).error_handler(api_limit_error));
 
@@ -334,10 +318,10 @@ fn app_router_from_state(state: AppState) -> Router {
         .layer(CompressionLayer::new())
 }
 
-/// The governor above protects a single process from bursts. This database
-/// counter is the authoritative allowance across replicas; it is deliberately
-/// before every versioned API route and leaves only /health outside the policy.
-async fn shared_api_rate_limit(
+/// The governor above absorbs very short bursts. This durable counter is the
+/// authoritative allowance across independent connections and restarts. It is
+/// deliberately before every versioned API route; only /health is exempt.
+async fn durable_api_rate_limit(
     State(state): State<AppState>,
     request: Request,
     next: Next,
@@ -352,34 +336,31 @@ async fn shared_api_rate_limit(
         .unwrap_or("unknown");
     let now = chrono::Utc::now().timestamp();
     let is_write = request.method() == Method::POST;
-    // Writes deliberately use a minute bucket. The value is authoritative in
-    // PostgreSQL, so changing HTTP connections or replicas cannot multiply a
-    // 12-write allowance. Reads use the same minute-sized shared burst
-    // window: the public container has a high-latency pooled PostgreSQL
-    // boundary, so a one-second fixed bucket could refill while a single
-    // 160-connection burst was still draining through that boundary.
+    // Writes deliberately use a minute bucket so independent connections
+    // cannot multiply a 12-write allowance. Reads use the same minute-sized
+    // durable burst window so a 160-connection burst cannot refill while it
+    // is still draining through the application.
     let (window_start, key, limit, retry_after) = if is_write {
         (
             now - now.rem_euclid(WRITE_REPLENISH_SECONDS as i64),
             format!("write:{client}"),
-            SHARED_WRITE_REQUESTS_PER_MINUTE,
+            WRITE_REQUESTS_PER_MINUTE,
             WRITE_REPLENISH_SECONDS.to_string(),
         )
     } else {
         (
             now - now.rem_euclid(READ_REPLENISH_SECONDS as i64),
             format!("read:{client}"),
-            SHARED_API_REQUESTS_PER_SECOND,
+            API_REQUESTS_PER_WINDOW,
             READ_REPLENISH_SECONDS.to_string(),
         )
     };
     let local_key = format!("{key}:{window_start}");
     let reservation = if is_write { 1 } else { READ_RATE_RESERVATION };
     // A small local reservation turns a large burst into a bounded number of
-    // shared database updates rather than one update per request. The
-    // database still grants every block atomically, so independent replicas
-    // cannot exceed the global 40-read/12-write allowance. Holding this short
-    // per-process lock covers only a quota reservation, never application work.
+    // durable updates rather than one update per request. SQLite grants each
+    // block atomically. This lock covers only quota reservation, never
+    // application work.
     let allowed = {
         let mut local_windows = state.rate_windows.lock().await;
         local_windows.retain(|_, value| value.window_start >= now - 2 * 60);
@@ -457,16 +438,12 @@ async fn shared_api_rate_limit(
 }
 
 async fn reserve_rate_block(
-    pool: &AnyPool,
+    pool: &SqlitePool,
     key: &str,
     window_start: i64,
     reservation: i32,
     limit: i32,
 ) -> Result<i32, sqlx::Error> {
-    // PostgreSQL stores this column as INTEGER (i32), while SQLite's dynamic
-    // integer type had masked the wrong i64 decoder in local-only testing.
-    // `$1` parameters work with both PostgreSQL and SQLite. `AnyPool` selects
-    // a driver but does not rewrite `?` placeholders for PostgreSQL.
     sqlx::query_scalar::<_, i32>(
         "INSERT INTO api_rate_windows (client_key, window_start, hits) VALUES ($1, $2, $3) \
          ON CONFLICT (client_key, window_start) DO UPDATE SET hits = api_rate_windows.hits + $3 \
@@ -483,7 +460,7 @@ async fn reserve_rate_block(
 }
 
 async fn reserve_rate_block_with_remainder(
-    pool: &AnyPool,
+    pool: &SqlitePool,
     key: &str,
     window_start: i64,
     reservation: i32,
@@ -579,6 +556,39 @@ async fn file_response(path: &std::path::Path, status: StatusCode) -> Response {
     }
 }
 
+fn runtime_storage_paths(data_dir: &std::path::Path) -> (PathBuf, PathBuf) {
+    (
+        data_dir.join("booking-recovery-loop.sqlite3"),
+        data_dir.join("contact.key"),
+    )
+}
+
+async fn prepare_data_dir() -> (PathBuf, &'static str) {
+    let supplied = env::var_os("BOOKING_DATA_DIR").map(PathBuf::from);
+    let requested = supplied.clone().unwrap_or_else(|| PathBuf::from("/data"));
+    if tokio::fs::create_dir_all(&requested).await.is_ok() {
+        return (
+            requested,
+            if supplied.is_some() {
+                "supplied"
+            } else {
+                "default"
+            },
+        );
+    }
+
+    // The production image always contains writable /data and the deployment
+    // mounts its durable share there. This fallback keeps a bare local binary
+    // usable on hosts where creating /data is not permitted.
+    let fallback = env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(".booking-recovery-loop-data");
+    tokio::fs::create_dir_all(&fallback)
+        .await
+        .expect("the local data directory must be writable");
+    (fallback, "local fallback")
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::registry()
@@ -598,19 +608,6 @@ async fn main() {
         .ok()
         .and_then(|value| value.parse::<u16>().ok())
         .unwrap_or(8080);
-    sqlx::any::install_default_drivers();
-    let database_source = if env::var("DATABASE_URL").is_ok() {
-        "supplied"
-    } else {
-        "generated default"
-    };
-    let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:///data/booking-recovery-loop.db?mode=rwc".to_owned());
-    if env::var("REQUIRE_SHARED_DATABASE").ok().as_deref() == Some("1")
-        && !database_url.starts_with("postgres")
-    {
-        panic!("REQUIRE_SHARED_DATABASE=1 requires a PostgreSQL DATABASE_URL");
-    }
     let static_dir = env::var("STATIC_DIR").unwrap_or_else(|_| {
         if PathBuf::from("/app/dist/index.html").exists() {
             "/app/dist".to_owned()
@@ -618,47 +615,25 @@ async fn main() {
             "dist".to_owned()
         }
     });
-    let uses_postgres = database_url.starts_with("postgres");
-    let pool = AnyPoolOptions::new()
-        .max_connections(database_pool_max_connections(&database_url))
-        .after_connect(move |connection, _| {
-            Box::pin(async move {
-                // PgBouncer may hand a different physical connection to each
-                // request. Set the tenant schema on every acquired PostgreSQL
-                // connection instead of relying on a startup URL option. The
-                // shared factory database has a populated public schema for
-                // other products, so create this product's isolated schema
-                // before selecting it; PostgreSQL otherwise falls back to
-                // public and SQLx sees another product's migration history.
-                if uses_postgres {
-                    for statement in postgres_schema_setup_statements() {
-                        sqlx::query(statement).execute(&mut *connection).await?;
-                    }
-                }
-                Ok(())
-            })
-        })
-        .connect(&database_url)
+    let (data_dir, data_source) = prepare_data_dir().await;
+    let (sqlite_path, key_path) = runtime_storage_paths(&data_dir);
+    let sqlite_options = SqliteConnectOptions::new()
+        .filename(&sqlite_path)
+        .create_if_missing(true)
+        .foreign_keys(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(5));
+    let pool = SqlitePoolOptions::new()
+        .max_connections(8)
+        .connect_with(sqlite_options)
         .await
-        .expect("the configured shared database must open");
-    // sqlx's PostgreSQL migrator holds a session advisory lock. The factory's
-    // managed URL is PgBouncer transaction pooling, where a subsequent
-    // unlock can be assigned a different physical connection and leave that
-    // lock behind. Migrations are therefore a one-shot release operation for
-    // the shared database (run with RUN_MIGRATIONS=1), never a replica startup
-    // operation. SQLite remains self-starting for the no-config local path.
-    let run_migrations = !uses_postgres || env::var("RUN_MIGRATIONS").ok().as_deref() == Some("1");
-    if run_migrations {
-        migrations::up(&pool)
-            .await
-            .expect("the demo database migration must apply");
-    } else {
-        info!("shared PostgreSQL migrations are managed by the release job");
-    }
+        .expect("the durable SQLite file must open");
+    migrations::up(&pool)
+        .await
+        .expect("the SQLite migration must apply");
 
-    let key_path = env::var("CONTACT_KEY_FILE").unwrap_or_else(|_| "/data/contact.key".to_owned());
-    let (encryption_key, key_source) =
-        load_key_from_environment_or_file(std::path::Path::new(&key_path)).await;
+    let (encryption_key, key_source) = load_key_from_environment_or_file(&key_path).await;
     let address = SocketAddr::from(([0, 0, 0, 0], port));
     let build_sha = env!("BUILD_SHA");
     let integrations = IntegrationConfig::from_environment();
@@ -670,7 +645,8 @@ async fn main() {
     info!(
         port,
         port_source,
-        database_source,
+        data_source,
+        sqlite_path = %sqlite_path.display(),
         key_source,
         delivery_source,
         build_sha,
@@ -788,26 +764,62 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn postgres_connections_create_and_select_the_product_schema_before_migrating() {
+    fn production_state_paths_are_both_under_data() {
+        let (sqlite_path, key_path) = super::runtime_storage_paths(std::path::Path::new("/data"));
         assert_eq!(
-            super::postgres_schema_setup_statements(),
-            [
-                "CREATE SCHEMA IF NOT EXISTS booking_recovery_loop",
-                "SET search_path TO booking_recovery_loop, public",
-            ]
+            sqlite_path,
+            std::path::Path::new("/data/booking-recovery-loop.sqlite3")
         );
+        assert_eq!(key_path, std::path::Path::new("/data/contact.key"));
     }
 
-    #[test]
-    fn postgres_replica_pools_leave_operational_headroom_in_the_shared_pooler() {
-        assert_eq!(super::database_pool_max_connections("sqlite::memory:"), 1);
-        assert_eq!(
-            super::database_pool_max_connections("postgresql://example.test/postgres"),
-            2
-        );
-        assert!(
-            super::database_pool_max_connections("postgresql://example.test/postgres") * 3 + 3 < 15,
-            "three replicas must leave room for release and operational connections"
-        );
+    #[tokio::test]
+    async fn sqlite_state_survives_restart_in_data_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "booking-recovery-loop-restart-{}",
+            uuid::Uuid::now_v7()
+        ));
+        let data_dir = root.join("data");
+        tokio::fs::create_dir_all(&data_dir).await.unwrap();
+        let (sqlite_path, _) = super::runtime_storage_paths(&data_dir);
+        assert_eq!(sqlite_path.parent(), Some(data_dir.as_path()));
+
+        let options = super::SqliteConnectOptions::new()
+            .filename(&sqlite_path)
+            .create_if_missing(true)
+            .journal_mode(super::SqliteJournalMode::Wal);
+        let first = super::SqlitePoolOptions::new()
+            .max_connections(2)
+            .connect_with(options.clone())
+            .await
+            .unwrap();
+        crate::migrations::up(&first).await.unwrap();
+        sqlx::query(
+            "INSERT INTO api_rate_windows (client_key, window_start, hits) VALUES ($1, $2, $3)",
+        )
+        .bind("restart-proof")
+        .bind(123_i64)
+        .bind(7_i32)
+        .execute(&first)
+        .await
+        .unwrap();
+        first.close().await;
+
+        let second = super::SqlitePoolOptions::new()
+            .max_connections(2)
+            .connect_with(options)
+            .await
+            .unwrap();
+        let hits: i32 = sqlx::query_scalar(
+            "SELECT hits FROM api_rate_windows WHERE client_key = $1 AND window_start = $2",
+        )
+        .bind("restart-proof")
+        .bind(123_i64)
+        .fetch_one(&second)
+        .await
+        .unwrap();
+        assert_eq!(hits, 7, "state in the data directory must survive restart");
+        second.close().await;
+        tokio::fs::remove_dir_all(root).await.unwrap();
     }
 }

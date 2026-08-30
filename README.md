@@ -38,12 +38,11 @@ cargo run --manifest-path backend/Cargo.toml
 
 Open `http://127.0.0.1:8080`.
 
-For the multi-replica production path, set `DATABASE_URL` to the factory's
-shared PostgreSQL connection and `CONTACT_ENCRYPTION_KEY` to the shared 32-byte
-hex or base64url secret. Set `REQUIRE_SHARED_DATABASE=1` in production: it
-refuses the replica-local SQLite fallback. With neither set, the service starts
-in local SQLite mode for development and tests only. The deployment contract is
-recorded in `deploy/containerapp.m1.json`.
+With no storage environment variable, the service creates
+`/data/booking-recovery-loop.sqlite3` in WAL mode and `/data/contact.key` on
+first boot. Set `BOOKING_DATA_DIR` only for local development on a host where
+`/data` is unavailable. The production contract pins one replica and mounts a
+durable volume at `/data`; it is recorded in `deploy/containerapp.m1.json`.
 
 The API validates Entra discovery, issuer, JWKS/RS256 signature, audience,
 tenant, expiry, and stable `oid` before it opens an owner workspace. Local
@@ -79,16 +78,15 @@ npm run check:size
 ./scripts/deploy-container.sh
 ```
 
-This factory-only command builds the image, creates or reuses the stable
-contact-encryption secret, injects the managed PostgreSQL URL, runs migrations
-once in the isolated `booking_recovery_loop` database schema, and applies every
-value in `deploy/containerapp.m1.json`. Do not use the generic port-only deploy
-command: it discards the shared-store boundary. The app remains runnable locally
-with only `PORT`; use `/health` for a health check.
+This factory-only command builds the image, verifies the existing `/data`
+volume mount, pins the app to one replica, removes obsolete app-local database
+settings, and applies `deploy/containerapp.m1.json`. It never creates or reads
+an external database or secret store. The app remains runnable with only
+`PORT`; use `/health` for a health check.
 
-The shared production pooler permits 15 session clients. The service caps each
-of three replicas at two PostgreSQL connections, preserving headroom for the
-release job and operations during an API burst.
+`npm run test:deployment` rejects forbidden external-resource identifiers and
+proves the one-replica `/data` contract. The backend suite closes and reopens a
+SQLite pool, then checks that durable state remains in the same mounted path.
 
 ## License
 

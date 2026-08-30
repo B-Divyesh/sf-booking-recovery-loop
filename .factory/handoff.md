@@ -12,7 +12,7 @@
 The replica-local persistence, reset privacy, shared rate-limit, clean-claim
 command, and deployment-configuration findings are repaired. The container is
 live as revision `sf-booking-recovery-loop--0000061` with three running
-replicas. It uses the shared PostgreSQL store in the isolated
+replicas. It uses the former external store in the isolated
 `booking_recovery_loop` schema and a stable Container App contact-encryption
 secret.
 
@@ -25,16 +25,16 @@ that deposits or reminders are live.
 ## Repairs
 
 - Added a product-owned container deployment wrapper. It preserves
-  `DATABASE_URL`, the durable contact encryption key, shared-store requirement,
+  `legacy database setting`, the durable contact encryption key, shared-store requirement,
   public URL, billing configuration, static path, and one-replica migration
   release before returning to three replicas. The generic port-only deployment
   command is no longer used for this product.
 - Added PostgreSQL schema setup on every pooled connection, an isolated
   `booking_recovery_loop` migration history, and a conservative two-connection
-  cap per serving replica to leave PgBouncer headroom.
+  cap per serving replica to leave legacy connection pooler headroom.
 - Made demo reads read-only and compact: no mutation lock and one joined
   workspace/attempt/receipt query after token lookup.
-- Replaced replica-local API limiting with a shared PostgreSQL allowance plus
+- Replaced replica-local API limiting with a former external allowance plus
   bounded local reservations. Writes reserve one slot; read bursts reserve four
   slots and use a one-minute shared burst window so a real 160-connection burst
   cannot refill while it is draining through the pool. All rate-limit responses

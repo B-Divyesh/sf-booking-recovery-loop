@@ -2,31 +2,24 @@
   "productSlug": "booking-recovery-loop",
   "artifactClass": "web-with-backend",
   "containerPort": 8080,
-  "database": {
-    "engine": "postgresql",
-    "connectionStringEnv": "DATABASE_URL",
-    "connectionStringSecret": "database-url",
-    "schema": "booking_recovery_loop",
-    "backup": "managed PostgreSQL point-in-time restore plus encrypted owner export",
-    "runtimeSecret": "database-url",
-    "searchPath": "booking_recovery_loop"
+  "deploy": {
+    "data_dir": "/data"
   },
-  "secrets": {
-    "CONTACT_ENCRYPTION_KEY": "contact-encryption-key",
-    "DATABASE_URL": "database-url"
+  "database": {
+    "engine": "sqlite",
+    "path": "/data/booking-recovery-loop.sqlite3",
+    "journalMode": "WAL",
+    "backup": "durable /data volume plus encrypted owner export"
   },
   "scale": {
     "minReplicas": 1,
-    "maxReplicas": 3
+    "maxReplicas": 1
   },
   "environment": {
     "PORT": "8080",
-    "DATABASE_URL": "secretref:database-url",
-    "CONTACT_ENCRYPTION_KEY": "secretref:contact-encryption-key",
     "PUBLIC_BASE_URL": "https://booking-recovery-loop.sociobot.in",
     "SOCIOBOT_BILLING_BASE_URL": "https://api.sociobot.in/api/v1",
     "SOCIOBOT_BOOKING_PRODUCT_SLUG": "booking-recovery-loop-deposit",
-    "REQUIRE_SHARED_DATABASE": "1",
     "STATIC_DIR": "/app/dist"
   },
   "integrations": {
@@ -43,5 +36,5 @@
       ]
     }
   },
-  "reason": "Production uses the shared PostgreSQL database/schema and a shared contact-encryption secret. Multiple replicas therefore read, delete, schedule, and rate-limit against the same durable customer-data boundary; SQLite remains local-only for no-env development and tests. Delivery and dedicated deposit credentials are omitted until factory-provisioned, so the service fails closed instead of receiving placeholder values."
+  "reason": "One product replica keeps its SQLite database and generated contact-encryption key on the mounted /data volume. The application starts with only PORT and creates both files on first boot."
 }

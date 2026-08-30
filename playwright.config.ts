@@ -32,7 +32,7 @@ export default defineConfig({
       url: "http://127.0.0.1:4173",
       env: {
         PORT: "4173",
-        DATABASE_URL: "sqlite://booking-recovery-loop-e2e-v3.db?mode=rwc",
+        BOOKING_DATA_DIR: `/tmp/booking-recovery-loop-playwright-${process.pid}`,
         STATIC_DIR: "dist",
         TEST_ENTRA_OID: "playwright-sociobot-entra-user",
         SOCIOBOT_BILLING_BASE_URL: "http://127.0.0.1:4174",

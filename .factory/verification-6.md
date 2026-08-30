@@ -64,7 +64,7 @@ real**. Evidence:
 
 Fresh read-only infrastructure inspection found revision
 `sf-booking-recovery-loop--0000019` running three replicas. Its only configured
-environment variable is `PORT`; neither `DATABASE_URL` nor the shared contact
+environment variable is `PORT`; neither `legacy database setting` nor the shared contact
 encryption key in `deploy/containerapp.m1.json` is present.
 
 A new practice was then exercised through independent HTTP/1.1 connections
@@ -233,7 +233,7 @@ demo error state passed locally.
 
 ## Required release work
 
-1. Deploy the candidate with the shared PostgreSQL `DATABASE_URL` and shared
+1. Deploy the candidate with the former external `legacy database setting` and shared
    `CONTACT_ENCRYPTION_KEY`; verify independent-connection read/delete and
    service-wide rate limits across all replicas.
 2. Implement and provision a supported email **and SMS** provider adapter with

@@ -96,7 +96,7 @@ Deployment uses `/opt/fleet/lib/deploy-container.sh` with:
 - container port `8080`;
 - build arg `BUILD_SHA` supplied by the factory deployer.
 
-Runtime variables are optional: `PORT`, `DATABASE_URL`, and `STATIC_DIR`.
+Runtime variables are optional: `PORT`, `legacy database setting`, and `STATIC_DIR`.
 There are no secrets in M1. The image defaults to port 8080, `/app/dist`, and
 a generated local SQLite file under the non-root `/data` working directory.
 

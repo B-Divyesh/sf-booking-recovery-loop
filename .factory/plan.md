@@ -1,9 +1,9 @@
 # Booking Recovery Loop — venture plan
 
-**Status:** Repair 10 repaired and independently rechecked the shared PostgreSQL
-multi-replica boundary (write/read limits and reset-token revocation). Production
-delivery credentials and the dedicated deposit product remain factory-gated;
-the real paid-booking workflow cannot release until they are provisioned.
+**Status:** Repair 11 migrates all runtime state to the product's SQLite files
+under `/data` and pins production to one replica. Production delivery
+credentials and the dedicated deposit product remain factory-gated; the real
+paid-booking workflow cannot release until they are provisioned.
 **Product URL:** `https://booking-recovery-loop.sociobot.in`
 **Planning date:** 2026-08-28
 
@@ -127,23 +127,23 @@ lost.
   booking surface and compact operations UI need fast load and accessible,
   explicit state—not a component runtime. The initial JavaScript budget is
   150 KB gzip (hard maximum 200 KB).
-- **API and worker:** Rust 2021, axum, tokio, sqlx, PostgreSQL. This is shared,
-  sensitive multi-tenant data with scheduled work and webhook verification;
-  Rust and Postgres make ownership, query boundaries, and job claiming
-  explicit. A single service image runs the HTTP API and a supervised worker
-  loop initially; split worker deployment only when queue load warrants it.
-- **M1 demo store:** SQLite holds only fictional, expiring demo workspaces. The
-  runtime receives no database connection string, and no customer record exists
-  in M1. This keeps the public demo deployable with only `PORT`; M2 introduces
-  PostgreSQL before accounts or real practice data are accepted.
+- **API, worker, and store:** Rust 2021, axum, tokio, sqlx, and SQLite. One
+  service image runs the HTTP API and supervised worker loop. Customer records,
+  scheduled work, demo workspaces, rate windows, and migration history share
+  `/data/booking-recovery-loop.sqlite3` in WAL mode. Production is pinned to
+  one replica so there is one writer and one durable state boundary.
+- **Runtime contract:** With only `PORT`, the container creates its database
+  and generated contact-encryption key under `/data`. A durable factory volume
+  is mounted there. Local development can set `BOOKING_DATA_DIR`; no remote
+  database connection setting is supported.
 - **Deployment shape:** one container serving the API on `PORT` (default
   `8080`) plus the built web assets, behind the factory ingress. `dist/` is
   always produced by `npm run build` for static inspection. Docker is
   multi-stage and runs as non-root. No infrastructure changes live here.
-- **Local developer services:** M1 starts with its generated SQLite demo store.
-  Docker Compose retains the planned Postgres service for M2. API tests use an
-  isolated in-memory database, and browser tests run the built client through
-  axum so same-origin boundaries match production.
+- **Local developer services:** Docker Compose runs this same image with a
+  named volume at `/data`. API tests use isolated SQLite files or memory stores,
+  and browser tests run the built client through axum so same-origin boundaries
+  match production.
 
 M1 turns the initial Vite and axum shells into the first useful demo. Later
 milestones extend this boundary instead of replacing the public workflow.
@@ -198,7 +198,8 @@ M2 adds Sociobot Microsoft Entra External ID exactly as follows:
 Each query receives a `PracticeId` only after a membership lookup. Public
 booking endpoints resolve only a non-guessable public page slug and never
 return other practice data. Database access is tenant-scoped in repository
-methods and PostgreSQL row-level security is enabled before production data.
+methods. SQLite foreign keys and owner-scoped queries enforce the local tenant
+boundary; regression tests create two owners and prove cross-owner isolation.
 
 ### Data model
 
@@ -282,7 +283,7 @@ contact values and tokens.
   before exposure. JSON structured logs include request ID, route, status,
   latency, and redacted practice/user IDs. Sentry-like third-party tracking is
   not added; operational page views are aggregate and privacy-preserving.
-- Postgres has daily encrypted backups and a quarterly restore drill. Exports
+- The mounted `/data` volume is included in the factory backup policy. Exports
   are one-time, expiring download URLs. Deletion removes contacts/messages and
   redacts audit records after the required operational window; a nightly job
   purges expired demo tenants after 24 hours.

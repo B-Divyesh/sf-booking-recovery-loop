@@ -1,14 +1,15 @@
 services:
-  postgres:
-    image: postgres:16-alpine
+  app:
+    build:
+      context: .
+      args:
+        BUILD_SHA: local-compose
     environment:
-      POSTGRES_DB: booking_recovery_loop
-      POSTGRES_USER: booking_recovery_loop
-      POSTGRES_PASSWORD: local-development-only
+      PORT: "8080"
     ports:
-      - "5432:5432"
+      - "8080:8080"
     volumes:
-      - booking-recovery-loop-postgres:/var/lib/postgresql/data
+      - booking-recovery-loop-data:/data
 
 volumes:
-  booking-recovery-loop-postgres:
+  booking-recovery-loop-data:

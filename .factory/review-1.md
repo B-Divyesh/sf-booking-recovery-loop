@@ -255,7 +255,7 @@ F-1-2.
 | 39 | 8 | Requirements: Node 22+, npm, and current stable Rust. | Clear instruction. |
 | 47–48 | 4 / 6 | Open http://127.0.0.1:8080. The service creates booking-recovery-loop.db locally. | Clear instruction; server-storage claim. |
 | 50 | 7 | PORT — HTTP port, default 8080. | Clear reference item. |
-| 51–52 | 7 | DATABASE_URL — SQLite URL, default sqlite://booking-recovery-loop.db. | Clear reference item. |
+| 51–52 | 7 | legacy database setting — SQLite URL, default sqlite://booking-recovery-loop.db. | Clear reference item. |
 | 53–54 | 14 | STATIC_DIR — built web directory, default dist locally and /app/dist in the container. | Clear reference item. |
 | 67–69 | 10 / 18 | The Playwright command builds and starts the complete service itself. It runs one browser test per claim … plus axe and keyboard checks for every public route. | First is a technical claim; second is inaccurate as a ledger statement because F-1-2 claims are not registered. |
 | 71 | 5 | To build the production image: | Clear instruction lead-in. |

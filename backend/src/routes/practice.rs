@@ -1361,7 +1361,7 @@ mod tests {
     use http_body_util::BodyExt;
     use serde_json::{json, Value};
     use sha2::Sha256;
-    use sqlx::{any::AnyPoolOptions, AnyPool};
+    use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
     use std::{
         path::PathBuf,
         sync::{
@@ -1377,15 +1377,14 @@ mod tests {
         app_router, app_router_with_integrations, migrations, AppState, IntegrationConfig,
     };
 
-    async fn test_app() -> (axum::Router, AnyPool) {
+    async fn test_app() -> (axum::Router, SqlitePool) {
         test_app_with_integrations(IntegrationConfig::from_environment()).await
     }
 
     async fn test_app_with_integrations(
         integrations: IntegrationConfig,
-    ) -> (axum::Router, AnyPool) {
-        sqlx::any::install_default_drivers();
-        let pool = AnyPoolOptions::new()
+    ) -> (axum::Router, SqlitePool) {
+        let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
             .await
@@ -1439,7 +1438,7 @@ mod tests {
         value
     }
 
-    fn scheduler_state(pool: AnyPool) -> AppState {
+    fn scheduler_state(pool: SqlitePool) -> AppState {
         AppState {
             build_sha: Arc::from("test"),
             pool,
@@ -2296,37 +2295,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shared_durable_store_prevents_the_verifier_cross_replica_read_and_delete_split() {
+    async fn sqlite_file_prevents_independent_connection_read_and_delete_split() {
         let database_path = std::env::temp_dir().join(format!(
-            "booking-recovery-shared-replica-{}.db",
+            "booking-recovery-durable-connection-{}.db",
             Uuid::now_v7()
         ));
-        let database_url = format!("sqlite://{}?mode=rwc", database_path.display());
-        sqlx::any::install_default_drivers();
-        let first_pool = AnyPoolOptions::new()
+        let sqlite_uri = format!("sqlite://{}?mode=rwc", database_path.display());
+        let first_pool = SqlitePoolOptions::new()
             .max_connections(1)
-            .connect(&database_url)
+            .connect(&sqlite_uri)
             .await
             .unwrap();
         migrations::up(&first_pool).await.unwrap();
-        let second_pool = AnyPoolOptions::new()
+        let second_pool = SqlitePoolOptions::new()
             .max_connections(1)
-            .connect(&database_url)
+            .connect(&sqlite_uri)
             .await
             .unwrap();
-        let first = app_router(first_pool.clone(), "replica-one", "../dist");
-        let second = app_router(second_pool.clone(), "replica-two", "../dist");
+        let first = app_router(first_pool.clone(), "connection-one", "../dist");
+        let second = app_router(second_pool.clone(), "connection-two", "../dist");
 
-        let owner = create_owner(&first, "shared-replica-practice").await;
+        let owner = create_owner(&first, "durable-connection-practice").await;
         let token = owner["accessToken"].as_str().unwrap();
         let (read_status, view) =
             send(&second, "GET", "/api/v1/practice", json!({}), Some(token)).await;
         assert_eq!(
             read_status,
             StatusCode::OK,
-            "a different replica must read the created practice"
+            "a different connection must read the created practice"
         );
-        assert_eq!(view["publicSlug"], "shared-replica-practice");
+        assert_eq!(view["publicSlug"], "durable-connection-practice");
         let (delete_status, _) = send(
             &second,
             "DELETE",
@@ -2338,19 +2336,19 @@ mod tests {
         assert_eq!(
             delete_status,
             StatusCode::NO_CONTENT,
-            "a different replica must delete the same practice"
+            "a different connection must delete the same practice"
         );
         let (after_delete, _) =
             send(&first, "GET", "/api/v1/practice", json!({}), Some(token)).await;
         assert_eq!(
             after_delete,
             StatusCode::UNAUTHORIZED,
-            "deletion must be visible to every replica"
+            "deletion must be visible to every connection"
         );
 
         // Regression for verifier 6: independent HTTP connections can land on
-        // different replicas, but the first forwarded client still receives
-        // one shared 12-write minute allowance (not 12 per replica).
+        // independent connections, but the first forwarded client still receives
+        // one shared 12-write minute allowance (not 12 per connection).
         let mut accepted = 0;
         let mut limited = None;
         for number in 0..13 {
@@ -2358,7 +2356,7 @@ mod tests {
                 .method("POST")
                 .uri("/api/v1/demo/workspaces")
                 .header("x-forwarded-for", "203.0.113.249")
-                .header("idempotency-key", format!("cross-replica-write-{number}"))
+                .header("idempotency-key", format!("independent-write-{number}"))
                 .body(Body::empty())
                 .unwrap();
             let response = if number % 2 == 0 {
@@ -2373,7 +2371,7 @@ mod tests {
                 limited = Some(response);
             }
         }
-        assert_eq!(accepted, 12, "writes must not multiply by replica");
+        assert_eq!(accepted, 12, "writes must not multiply by connection");
         let limited = limited.expect("the thirteenth independent write must be limited");
         assert_eq!(limited.headers()["x-ratelimit-limit"], "12");
         assert_eq!(limited.headers()["retry-after"], "60");

@@ -17,8 +17,8 @@
     "id": "forwarded-rate-limit",
     "claim": "Demo writes allow 12 immediate requests per first forwarded client IP, then return a retry time of at least one second.",
     "where": "Terms and API response headers",
-    "test": "cargo test --manifest-path backend/Cargo.toml shared_write_limit_allows_only_twelve_of_forty_concurrent_cross_replica_writes",
-    "sandbox": "Four isolated API replicas share one durable store. Forty simultaneous writes from one X-Forwarded-For address yield exactly 12 created workspaces and 28 responses with 429, X-RateLimit-Limit 12, and Retry-After 60."
+    "test": "cargo test --manifest-path backend/Cargo.toml durable_write_limit_allows_only_twelve_of_forty_independent_writes",
+    "sandbox": "Four independent API routers use one durable SQLite file. Forty simultaneous writes from one X-Forwarded-For address yield exactly 12 created workspaces and 28 responses with 429, X-RateLimit-Limit 12, and Retry-After 60."
   },
   {
     "id": "demo-no-account-payment",
@@ -31,8 +31,8 @@
     "id": "demo-reset",
     "claim": "Reset demo starts a fresh set of sample bookings.",
     "where": "Demo banner",
-    "test": "cargo test --manifest-path backend/Cargo.toml reset_revokes_old_token_across_shared_replicas_under_concurrent_reads",
-    "sandbox": "Four isolated API replicas share one durable store. After reset rotates a fresh sample token, 24 simultaneous old-token reads distributed across every replica all return 404."
+    "test": "cargo test --manifest-path backend/Cargo.toml reset_revokes_old_token_across_independent_connections",
+    "sandbox": "Four independent API routers use one durable SQLite file. After reset rotates a fresh sample token, 24 simultaneous old-token reads distributed across every connection all return 404."
   },
   {
     "id": "consent-gates-recovery",
@@ -85,9 +85,9 @@
   },
   {
     "id": "shared-practice-storage",
-    "claim": "A practice read and deletion are consistent across service replicas.",
+    "claim": "A practice read and deletion are consistent across independent connections.",
     "where": "README operations section",
-    "test": "cargo test --manifest-path backend/Cargo.toml shared_durable_store_prevents_the_verifier_cross_replica_read_and_delete_split",
+    "test": "cargo test --manifest-path backend/Cargo.toml sqlite_file_prevents_independent_connection_read_and_delete_split",
     "sandbox": "Two independent API routers connect to one durable database file. One creates a practice, the other reads and deletes it, and the first immediately observes that deletion."
   },
   {

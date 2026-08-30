@@ -10,7 +10,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::{AnyPool, FromRow};
+use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
 
 use crate::AppState;
@@ -324,7 +324,10 @@ pub(crate) async fn recover(
     Ok(Json(load_workspace(&state.pool, &response_token).await?))
 }
 
-async fn seed_workspace(pool: &AnyPool, idempotency_key: String) -> Result<DemoEnvelope, ApiError> {
+async fn seed_workspace(
+    pool: &SqlitePool,
+    idempotency_key: String,
+) -> Result<DemoEnvelope, ApiError> {
     let now = Utc::now().timestamp();
     let expires_at = now + DEMO_TTL.as_secs() as i64;
     let workspace_id = Uuid::now_v7().to_string();
@@ -525,20 +528,19 @@ fn seeded_envelope(workspace_id: String, token: String, now: i64, expires_at: i6
     }
 }
 
-async fn load_workspace(pool: &AnyPool, token: &str) -> Result<DemoEnvelope, ApiError> {
+async fn load_workspace(pool: &SqlitePool, token: &str) -> Result<DemoEnvelope, ApiError> {
     let row = load_workspace_row(pool, token).await?;
     workspace_from_row(pool, token, row).await
 }
 
 async fn workspace_from_row(
-    pool: &AnyPool,
+    pool: &SqlitePool,
     token: &str,
     row: WorkspaceRow,
 ) -> Result<DemoEnvelope, ApiError> {
-    // Join receipts into the attempt read. A live 40-request allowance runs
-    // against the shared PostgreSQL pool, so one workspace-scoped read is
-    // materially safer than the former one query per attempt plus a receipt
-    // lookup. The left joins retain attempts without a receipt.
+    // Join receipts into the attempt read so one workspace-scoped read is
+    // cheaper than one query per attempt plus a receipt lookup. The left joins
+    // retain attempts without a receipt.
     let attempts = sqlx::query_as::<_, AttemptReceiptRow>(
         "SELECT a.id, a.client_name, a.scheduled_for, a.state, a.reason, a.email_consent, \
          a.consent_wording, a.consent_recorded_at, a.outcome, \
@@ -617,7 +619,7 @@ async fn workspace_from_row(
     })
 }
 
-async fn load_workspace_row(pool: &AnyPool, token: &str) -> Result<WorkspaceRow, ApiError> {
+async fn load_workspace_row(pool: &SqlitePool, token: &str) -> Result<WorkspaceRow, ApiError> {
     if let Some(row) = query_workspace_row(pool, token).await? {
         if row.is_demo == 1 && row.expires_at > Utc::now().timestamp() {
             return Ok(row);
@@ -632,7 +634,7 @@ async fn load_workspace_row(pool: &AnyPool, token: &str) -> Result<WorkspaceRow,
 }
 
 async fn query_workspace_row(
-    pool: &AnyPool,
+    pool: &SqlitePool,
     token: &str,
 ) -> Result<Option<WorkspaceRow>, ApiError> {
     sqlx::query_as::<_, WorkspaceRow>(
@@ -656,7 +658,7 @@ struct PortableToken<'a> {
 }
 
 async fn hydrate_workspace(
-    pool: &AnyPool,
+    pool: &SqlitePool,
     token: &str,
     portable: PortableToken<'_>,
 ) -> Result<(), ApiError> {
@@ -721,7 +723,7 @@ async fn hydrate_workspace(
     Ok(())
 }
 
-pub(crate) async fn purge_expired(pool: &AnyPool) -> Result<(), ApiError> {
+pub(crate) async fn purge_expired(pool: &SqlitePool) -> Result<(), ApiError> {
     sqlx::query(
         "DELETE FROM demo_workspaces WHERE is_demo = 1 AND expires_at <= $1 AND created_at <= $2",
     )
@@ -822,21 +824,20 @@ mod tests {
     use base64::Engine;
     use http_body_util::BodyExt;
     use serde_json::Value;
-    use sqlx::{any::AnyPoolOptions, AnyPool};
+    use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
     use tower::ServiceExt;
 
     use crate::{app_router, migrations};
 
-    async fn test_pool() -> AnyPool {
-        sqlx::any::install_default_drivers();
-        AnyPoolOptions::new()
+    async fn test_pool() -> SqlitePool {
+        SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
             .await
             .expect("memory database should open")
     }
 
-    async fn test_app() -> (axum::Router, AnyPool) {
+    async fn test_app() -> (axum::Router, SqlitePool) {
         let pool = test_pool().await;
         migrations::up(&pool).await.expect("migration should apply");
         (app_router(pool.clone(), "test", "../dist"), pool)
@@ -1150,7 +1151,7 @@ mod tests {
             "booking-recovery-concurrency-{}.db",
             uuid::Uuid::now_v7()
         ));
-        let pool = AnyPoolOptions::new()
+        let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect(&format!("sqlite://{}?mode=rwc", database_path.display()))
             .await
@@ -1215,24 +1216,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn portable_token_preserves_state_across_replica_databases() {
-        async fn replica() -> (axum::Router, AnyPool) {
+    async fn portable_token_preserves_state_across_fresh_local_stores() {
+        async fn fresh_app() -> (axum::Router, SqlitePool) {
             let pool = test_pool().await;
             migrations::up(&pool).await.expect("migration should apply");
             (app_router(pool.clone(), "test", "../dist"), pool)
         }
 
-        let (first, _) = replica().await;
+        let (first, _) = fresh_app().await;
         let created = json(
             first
                 .oneshot(request(
                     "POST",
                     "/api/v1/demo/workspaces",
-                    "replica-create",
+                    "fresh-app-create",
                     None,
                 ))
                 .await
-                .expect("first replica should create"),
+                .expect("first app should create"),
         )
         .await;
         let initial_token = created["workspaceToken"].as_str().expect("token");
@@ -1240,16 +1241,16 @@ mod tests {
             .as_str()
             .expect("attempt");
 
-        let (second, _) = replica().await;
+        let (second, _) = fresh_app().await;
         let recovered = second
             .oneshot(request(
                 "POST",
                 &format!("/api/v1/demo/attempts/{initial_attempt}/recover"),
-                "replica-recovery",
+                "fresh-app-recovery",
                 Some(initial_token),
             ))
             .await
-            .expect("second replica should recover");
+            .expect("second app should recover");
         assert_eq!(recovered.status(), StatusCode::OK);
         let recovered = json(recovered).await;
         let recovered_token = recovered["workspaceToken"]
@@ -1257,16 +1258,16 @@ mod tests {
             .expect("recovered token");
         assert!(recovered_token.ends_with(".recovered"));
 
-        let (third, _) = replica().await;
+        let (third, _) = fresh_app().await;
         let reloaded = third
             .oneshot(request(
                 "GET",
                 "/api/v1/demo/workspace",
-                "unused-replica-get",
+                "unused-fresh-app-get",
                 Some(recovered_token),
             ))
             .await
-            .expect("third replica should load");
+            .expect("third app should load");
         assert_eq!(reloaded.status(), StatusCode::OK);
         let reloaded = json(reloaded).await;
         assert_eq!(reloaded["workspace"]["attempts"][0]["state"], "recovered");
@@ -1276,15 +1277,14 @@ mod tests {
         );
     }
 
-    async fn shared_replica_apps(
+    async fn independent_connection_apps(
         database_path: &std::path::Path,
-        replicas: usize,
-    ) -> (Vec<axum::Router>, Vec<AnyPool>) {
-        sqlx::any::install_default_drivers();
-        let database_url = format!("sqlite://{}?mode=rwc", database_path.display());
-        let first_pool = AnyPoolOptions::new()
+        connections: usize,
+    ) -> (Vec<axum::Router>, Vec<SqlitePool>) {
+        let sqlite_uri = format!("sqlite://{}?mode=rwc", database_path.display());
+        let first_pool = SqlitePoolOptions::new()
             .max_connections(1)
-            .connect(&database_url)
+            .connect(&sqlite_uri)
             .await
             .expect("shared database should open");
         sqlx::query("PRAGMA journal_mode = WAL")
@@ -1300,32 +1300,32 @@ mod tests {
             .expect("shared migrations should apply");
 
         let mut pools = vec![first_pool];
-        for _ in 1..replicas {
-            let pool = AnyPoolOptions::new()
+        for _ in 1..connections {
+            let pool = SqlitePoolOptions::new()
                 .max_connections(1)
-                .connect(&database_url)
+                .connect(&sqlite_uri)
                 .await
-                .expect("replica database connection should open");
+                .expect("independent SQLite connection should open");
             sqlx::query("PRAGMA busy_timeout = 10000")
                 .execute(&pool)
                 .await
-                .expect("replica should wait for a write lock");
+                .expect("connection should wait for a write lock");
             pools.push(pool);
         }
         let apps = pools
             .iter()
-            .map(|pool| app_router(pool.clone(), "shared-replica", "../dist"))
+            .map(|pool| app_router(pool.clone(), "independent-connection", "../dist"))
             .collect();
         (apps, pools)
     }
 
     #[tokio::test]
-    async fn reset_revokes_old_token_across_shared_replicas_under_concurrent_reads() {
+    async fn reset_revokes_old_token_across_independent_connections() {
         let database_path = std::env::temp_dir().join(format!(
-            "booking-recovery-reset-replica-{}.db",
+            "booking-recovery-reset-connection-{}.db",
             uuid::Uuid::now_v7()
         ));
-        let (apps, pools) = shared_replica_apps(&database_path, 4).await;
+        let (apps, pools) = independent_connection_apps(&database_path, 4).await;
         let created = json(
             apps[0]
                 .clone()
@@ -1383,7 +1383,7 @@ mod tests {
             statuses
                 .iter()
                 .all(|status| *status == StatusCode::NOT_FOUND),
-            "a reset token must stay revoked on every shared-store replica: {statuses:?}"
+            "a reset token must stay revoked on every independent connection: {statuses:?}"
         );
 
         for pool in pools {
@@ -1393,12 +1393,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shared_write_limit_allows_only_twelve_of_forty_concurrent_cross_replica_writes() {
+    async fn durable_write_limit_allows_only_twelve_of_forty_independent_writes() {
         let database_path = std::env::temp_dir().join(format!(
-            "booking-recovery-rate-replica-{}.db",
+            "booking-recovery-rate-connection-{}.db",
             uuid::Uuid::now_v7()
         ));
-        let (apps, pools) = shared_replica_apps(&database_path, 4).await;
+        let (apps, pools) = independent_connection_apps(&database_path, 4).await;
         let mut requests = tokio::task::JoinSet::new();
         for number in 0..40 {
             let app = apps[number % apps.len()].clone();
@@ -1446,12 +1446,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shared_read_limit_allows_only_forty_of_one_hundred_sixty_cross_replica_reads() {
+    async fn durable_read_limit_allows_only_forty_of_one_hundred_sixty_independent_reads() {
         let database_path = std::env::temp_dir().join(format!(
-            "booking-recovery-read-rate-replica-{}.db",
+            "booking-recovery-read-rate-connection-{}.db",
             uuid::Uuid::now_v7()
         ));
-        let (apps, pools) = shared_replica_apps(&database_path, 4).await;
+        let (apps, pools) = independent_connection_apps(&database_path, 4).await;
         let created = json(
             apps[0]
                 .clone()
