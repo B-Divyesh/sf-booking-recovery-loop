@@ -53,8 +53,8 @@ const sentinels = [
   ["DATA", "BASE_URL"].join(""),
   ["Pg", "Bouncer"].join(""),
   ["shared", "post" + "gresql"].join(" "),
-  ["postgresql", "://"].join(""),
-  ["sqlx", "postgres"].join("-"),
+  ["post" + "gresql", "://"].join(""),
+  ["sqlx", "post" + "gres"].join("-"),
   ["sqlx", "mysql"].join("-"),
 ];
 const skippedDirectories = new Set([".git", "node_modules", "target", "dist", "test-results", "playwright-report"]);
