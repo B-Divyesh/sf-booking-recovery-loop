@@ -4,6 +4,8 @@ import { extname, relative } from "node:path";
 const root = new URL("../", import.meta.url);
 const contractPath = new URL("../deploy/containerapp.m1.json", import.meta.url);
 const config = JSON.parse(await readFile(contractPath, "utf8"));
+const dockerfile = await readFile(new URL("../Dockerfile", import.meta.url), "utf8");
+const cargoManifest = await readFile(new URL("../backend/Cargo.toml", import.meta.url), "utf8");
 
 if (config.artifactClass !== "web-with-backend") {
   throw new Error("The deployment must remain web-with-backend.");
@@ -41,6 +43,12 @@ if (config.environment?.STATIC_DIR !== "/app/dist") {
 }
 if (Object.keys(config.environment ?? {}).some((name) => name.startsWith("DELIVERY_PROVIDER_"))) {
   throw new Error("Unprovisioned delivery values must not be deployed as placeholders.");
+}
+if (!cargoManifest.includes('sqlx = { path = "sqlx-sqlite-only" }')) {
+  throw new Error("The backend must use the SQLite-only database facade.");
+}
+if (!dockerfile.includes("COPY backend/sqlx-sqlite-only ./sqlx-sqlite-only")) {
+  throw new Error("The production image must copy the SQLite-only facade before building.");
 }
 
 // Construct these sentinels so the regression test does not itself retain a

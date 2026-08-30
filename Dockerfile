@@ -14,6 +14,7 @@ ARG BUILD_SHA=dev
 ENV BUILD_SHA=${BUILD_SHA}
 WORKDIR /workspace/backend
 COPY backend/Cargo.toml backend/Cargo.lock backend/build.rs ./
+COPY backend/sqlx-sqlite-only ./sqlx-sqlite-only
 COPY backend/migrations ./migrations
 COPY backend/src ./src
 RUN cargo build --release --locked && mkdir -p /data
