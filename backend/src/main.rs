@@ -32,6 +32,7 @@ use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 const GENERAL_BURST: u32 = 40;
+const GENERAL_REPLENISH_SECONDS: u64 = 1;
 const WRITE_BURST: u32 = 12;
 const WRITE_REPLENISH_SECONDS: u64 = 60;
 
@@ -145,7 +146,7 @@ fn app_router_from_state(state: AppState) -> Router {
 
     let mut general_builder = GovernorConfigBuilder::default().key_extractor(SmartIpKeyExtractor);
     general_builder
-        .per_millisecond(50)
+        .per_second(GENERAL_REPLENISH_SECONDS)
         .burst_size(GENERAL_BURST)
         .methods(vec![Method::GET]);
     let general_limit = Arc::new(
@@ -229,7 +230,7 @@ fn app_router_from_state(state: AppState) -> Router {
     let api_limit = Arc::new(
         GovernorConfigBuilder::default()
             .key_extractor(SmartIpKeyExtractor)
-            .per_millisecond(50)
+            .per_second(GENERAL_REPLENISH_SECONDS)
             .burst_size(GENERAL_BURST)
             .finish()
             .expect("API rate limit must be valid"),
