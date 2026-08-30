@@ -1,0 +1,11 @@
+[package]
+name = "sqlx"
+version = "0.8.6-sqlite-only"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+sqlx-core = { version = "=0.8.6", default-features = false, features = ["_rt-tokio", "_tls-none", "migrate"] }
+sqlx-macros = { version = "=0.8.6", default-features = false, features = ["_rt-tokio", "derive", "migrate", "sqlite"] }
+sqlx-sqlite = { version = "=0.8.6", default-features = false, features = ["bundled", "migrate"] }

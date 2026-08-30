@@ -38,13 +38,17 @@ SOURCE_SHA=$(git -C "$ROOT" rev-parse HEAD)
 REGISTRY=sociobotregistry
 IMAGE="$REGISTRY.azurecr.io/sf-$SLUG:${SOURCE_SHA:0:12}"
 
-echo "Building the sf-booking-recovery-loop image."
-az acr build --registry "$REGISTRY" --image "sf-$SLUG:${SOURCE_SHA:0:12}" \
-  --file "$ROOT/Dockerfile" \
-  --build-arg "BUILD_SHA=$SOURCE_SHA" \
-  --build-arg "GIT_SHA=$SOURCE_SHA" \
-  --build-arg "SOURCE_COMMIT=$SOURCE_SHA" \
-  "$ROOT"
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  echo "Building the sf-booking-recovery-loop image."
+  az acr build --registry "$REGISTRY" --image "sf-$SLUG:${SOURCE_SHA:0:12}" \
+    --file "$ROOT/Dockerfile" \
+    --build-arg "BUILD_SHA=$SOURCE_SHA" \
+    --build-arg "GIT_SHA=$SOURCE_SHA" \
+    --build-arg "SOURCE_COMMIT=$SOURCE_SHA" \
+    "$ROOT"
+else
+  echo "Reusing the already-built image for $SOURCE_SHA."
+fi
 
 CURRENT_APP=$(az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" -o json)
 APP_ID=$(jq -r '.id' <<<"$CURRENT_APP")
@@ -67,7 +71,13 @@ PATCH_BODY=$(jq -c \
             ])
           | .volumeMounts = (((.volumeMounts // []) | map(select(.mountPath != "/data"))) + [{volumeName:"data",mountPath:"/data"}])
         )],
-        scale: (($template.scale // {}) | .minReplicas = 1 | .maxReplicas = 1),
+        # The 2024-03-01 PATCH schema rejects polling/cooldown fields returned
+        # by older revisions, so send only fields supported by Container Apps.
+        scale: {
+          minReplicas: 1,
+          maxReplicas: 1,
+          rules: ($template.scale.rules // [])
+        },
         volumes: ((($template.volumes // []) | map(select(.name != "data"))) + [{name:"data",storageType:"AzureFile",storageName:$storage}])
       }
     }

@@ -54,6 +54,8 @@ const sentinels = [
   ["Pg", "Bouncer"].join(""),
   ["shared", "post" + "gresql"].join(" "),
   ["postgresql", "://"].join(""),
+  ["sqlx", "postgres"].join("-"),
+  ["sqlx", "mysql"].join("-"),
 ];
 const skippedDirectories = new Set([".git", "node_modules", "target", "dist", "test-results", "playwright-report"]);
 const binaryExtensions = new Set([".avif", ".db", ".gif", ".ico", ".jpeg", ".jpg", ".png", ".sqlite", ".sqlite3", ".webp", ".woff", ".woff2"]);
