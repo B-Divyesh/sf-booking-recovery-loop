@@ -1,11 +1,18 @@
-import { readFile, readdir } from "node:fs/promises";
-import { extname, relative } from "node:path";
+import { execFile } from "node:child_process";
+import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { extname, join, relative } from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 const root = new URL("../", import.meta.url);
 const contractPath = new URL("../deploy/containerapp.m1.json", import.meta.url);
 const config = JSON.parse(await readFile(contractPath, "utf8"));
 const dockerfile = await readFile(new URL("../Dockerfile", import.meta.url), "utf8");
 const cargoManifest = await readFile(new URL("../backend/Cargo.toml", import.meta.url), "utf8");
+const deployScriptUrl = new URL("./deploy-container.sh", import.meta.url);
+const deployScript = await readFile(deployScriptUrl, "utf8");
 
 if (config.artifactClass !== "web-with-backend") {
   throw new Error("The deployment must remain web-with-backend.");
@@ -49,6 +56,52 @@ if (!cargoManifest.includes('sqlx = { path = "sqlx-sqlite-only" }')) {
 }
 if (!dockerfile.includes("COPY backend/sqlx-sqlite-only ./sqlx-sqlite-only")) {
   throw new Error("The production image must copy the SQLite-only facade before building.");
+}
+
+// Regression for repair 12: the old wrapper patched a volume that referred to
+// a missing environment storage and Azure rejected the release with
+// ManagedEnvironmentStorageNotFound. The factory deployer owns creation and
+// mounting of deploy.data_dir; repository code must only delegate the exact
+// product contract to it.
+for (const directCloudMutation of ["az acr", "az containerapp", "az rest", "storageName:"]) {
+  if (deployScript.includes(directCloudMutation)) {
+    throw new Error(`The product deploy wrapper must not perform direct cloud mutation: ${directCloudMutation}`);
+  }
+}
+
+const fixtureDirectory = await mkdtemp(join(tmpdir(), "booking-recovery-deploy-"));
+try {
+  const fakeFleetDeployer = join(fixtureDirectory, "fleet-deploy.sh");
+  const capturePath = join(fixtureDirectory, "capture.txt");
+  await writeFile(
+    fakeFleetDeployer,
+    '#!/bin/sh\nprintf "%s\\n" "$WO_DATA_DIR" "$@" > "$DEPLOY_CAPTURE"\n',
+    "utf8",
+  );
+  await chmod(fakeFleetDeployer, 0o755);
+  await execFileAsync(deployScriptUrl.pathname, [], {
+    cwd: root.pathname,
+    env: {
+      ...process.env,
+      DEPLOY_CAPTURE: capturePath,
+      FACTORY_CONTAINER_DEPLOYER: fakeFleetDeployer,
+      PREBUILT_IMAGE: "registry.invalid/sf-booking-recovery-loop:test",
+    },
+  });
+  const delegated = (await readFile(capturePath, "utf8")).trim().split("\n");
+  const expected = [
+    "/data",
+    "booking-recovery-loop",
+    root.pathname.replace(/\/$/, ""),
+    "Dockerfile",
+    "8080",
+    "registry.invalid/sf-booking-recovery-loop:test",
+  ];
+  if (JSON.stringify(delegated) !== JSON.stringify(expected)) {
+    throw new Error(`Factory deployment delegation mismatch: ${JSON.stringify(delegated)}`);
+  }
+} finally {
+  await rm(fixtureDirectory, { recursive: true, force: true });
 }
 
 // Construct these sentinels so the regression test does not itself retain a
