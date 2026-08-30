@@ -4,7 +4,7 @@
 
 **Candidate reproduced:** `52bc3a0b397b94dedf859edc3df0169ba5e6768d`
 
-**Repaired source before this handoff:** `249d2f4`
+**Repaired runtime source:** `da417e3579af`
 
 **Live URL:** <https://booking-recovery-loop.sociobot.in>
 
@@ -95,7 +95,7 @@ Local reports and screenshots are under
 
 - Running source remains candidate
   `52bc3a0b397b94dedf859edc3df0169ba5e6768d`, revision
-  `sf-booking-recovery-loop--0000062`. The repaired image was not activated.
+  `sf-booking-recovery-loop--0000063`. The repaired image was not activated.
 - The named app now has `minReplicas: 1`, `maxReplicas: 1`. Its only app
   setting name is `PORT`; it reports no app secret names. No protected service,
   setting, or secret was inspected or changed.
@@ -108,7 +108,9 @@ Local reports and screenshots are under
   candidate.
 - Live integration status reports both dedicated billing and delivery as
   unconfigured. The dedicated deposit checkout returns 404.
-- A source image build succeeded, but the app-only patch returned
+- ACR build `ch1hb` built and pushed runtime source `da417e3579af` as image
+  digest `sha256:542ce310a5dc4c546f70557f98472ed939a3ea75da20efd756ca05f6848478fd`.
+  Its log fetched and compiled only the SQLite SQLx driver. The app-only patch returned
   `ManagedEnvironmentStorageNotFound` for
   `sf-booking-recovery-loop-data`. The request failed before changing the
   revision. The repair deliberately did not create or inspect shared storage,
